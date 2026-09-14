@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>思维导图 Debug 页（浏览器直接打开，验证 UI）</title>
+<link rel="stylesheet" href="../media/style.css" />
+<style>
+  html, body { height: 100%; }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <button class="tb-btn primary" data-action="add-child" title="添加子主题（Tab）">＋ 子主题</button>
+    <span class="tb-sep"></span>
+    <button class="tb-btn" id="btn-undo" data-action="undo" title="撤销（Ctrl+Z）">撤销</button>
+    <button class="tb-btn" id="btn-redo" data-action="redo" title="重做（Ctrl+Y）">重做</button>
+    <span class="tb-sep"></span>
+    <button class="tb-btn icon" data-action="zoom-out" title="缩小">－</button>
+    <span class="tb-zoom" id="zoom-label">100%</span>
+    <button class="tb-btn icon" data-action="zoom-in" title="放大">＋</button>
+    <button class="tb-btn" data-action="fit" title="适应窗口">适应</button>
+    <span class="tb-sep"></span>
+    <div class="tb-dropdown">
+      <button class="tb-btn" data-action="layout-toggle">形状 ▾</button>
+      <div class="tb-menu" id="layout-menu">
+        <div class="tb-menu-item" data-action="layout-standard">标准（左右分布）</div>
+        <div class="tb-menu-item" data-action="layout-right">右向树</div>
+        <div class="tb-menu-item" data-action="layout-left">左向树</div>
+      </div>
+    </div>
+    <div class="tb-dropdown">
+      <button class="tb-btn" data-action="theme-toggle">主题 ▾</button>
+      <div class="tb-menu" id="theme-menu"></div>
+    </div>
+    <div class="tb-dropdown">
+      <button class="tb-btn" data-action="export-toggle">导出 ▾</button>
+      <div class="tb-menu" id="export-menu">
+        <div class="tb-menu-item" data-action="export-markdown">导出为 Markdown</div>
+        <div class="tb-menu-item" data-action="export-html">导出为 HTML</div>
+        <div class="tb-menu-item" data-action="export-png">导出为 PNG 图片</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <div id="world">
+      <svg id="edges" width="0" height="0"></svg>
+      <div id="nodes"></div>
+    </div>
+    <div id="drag-indicator"></div>
+  </div>
+
+  <div id="statusbar"><span id="status-text">就绪</span><span id="status-count"></span></div>
+  <div id="hintbar">Tab 子主题 · Enter 同级 · F2 编辑 · Del 删除 · 拖节点调整结构</div>
+  <div id="toast"></div>
+
+  <script>
+    // 模拟 VSCode 扩展宿主：ready 后注入一份演示数据
+    window.acquireVsCodeApi = function () {
+      return {
+        postMessage: function (msg) {
+          if (msg.type === 'ready') {
+            setTimeout(function () {
+              var data = {
+                version: 1,
+                root: {
+                  id: 'r1', text: '中心主题', collapsed: false,
+                  children: [
+                    { id: 'a', text: '分支一', collapsed: false, children: [
+                      { id: 'a1', text: '想法 1', collapsed: false, children: [] },
+                      { id: 'a2', text: '想法 2', collapsed: false, children: [] },
+                      { id: 'a3', text: '想法 3', collapsed: false, children: [] }
+                    ] },
+                    { id: 'b', text: '分支二', collapsed: false, children: [] },
+                    { id: 'c', text: '分支三', collapsed: false, children: [] }
+                  ]
+                }
+              };
+              window.dispatchEvent(new MessageEvent('message', {
+                data: { type: 'init', data: data, fileName: 'debug.mindmap', theme: 'feishu' }
+              }));
+            }, 100);
+          }
+        }
+      };
+    };
+  </script>
+  <script src="../media/core.js"></script>
+  <script src="../media/mindmap.js"></script>
+</body>
+</html>

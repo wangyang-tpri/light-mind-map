@@ -1,0 +1,116 @@
+{
+  "name": "light-mind-map",
+  "displayName": "轻量思维导图",
+  "description": "轻量级思维导图编辑器：布局、编辑、拖拽、折叠、撤销、导出 Markdown / HTML / PNG，使用 .mindmap 文件格式。",
+  "version": "0.1.0",
+  "publisher": "wangyang-tpri",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCustomEditor:mindmap.editor",
+    "onCommand:mindmap.new",
+    "onCommand:mindmap.newInFolder",
+    "onCommand:mindmap.export"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mindmap.new",
+        "title": "新建思维导图",
+        "category": "思维导图"
+      },
+      {
+        "command": "mindmap.newInFolder",
+        "title": "在此新建思维导图",
+        "category": "思维导图"
+      },
+      {
+        "command": "mindmap.export",
+        "title": "导出思维导图…",
+        "category": "思维导图"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "mindmap.editor",
+        "displayName": "思维导图",
+        "selector": [
+          {
+            "filenamePattern": "*.mindmap"
+          },
+          {
+            "filenamePattern": "*.mindm"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mindmap.newInFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mindmap.new"
+        },
+        {
+          "command": "mindmap.newInFolder"
+        },
+        {
+          "command": "mindmap.export"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "mindmap.new",
+        "key": "ctrl+alt+m",
+        "mac": "cmd+alt+m"
+      }
+    ],
+    "configuration": {
+      "title": "思维导图",
+      "properties": {
+        "mindmap.defaultTheme": {
+          "type": "string",
+          "enum": [
+            "feishu",
+            "fresh",
+            "night"
+          ],
+          "enumDescriptions": [
+            "轻量级（默认）",
+            "清新绿",
+            "深色夜间"
+          ],
+          "default": "feishu",
+          "description": "新打开思维导图时使用的默认主题"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package",
+    "test": "node test/core.test.js && node test/webview.smoke.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.4.0"
+  }
+}

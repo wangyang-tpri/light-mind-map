@@ -1,0 +1,439 @@
+/* ============================================================
+ * style.css —— 轻量级思维导图 Webview 样式
+ * 颜色主题通过 body 上的 CSS 变量切换。
+ * ============================================================ */
+
+:root {
+  --toolbar-bg: #f7f8fa;
+  --toolbar-border: #e5e6eb;
+  --toolbar-text: #1f2329;
+  --btn-hover: #e9ebee;
+  --btn-active: #dee1e6;
+  --primary: #3370ff;
+  --status-text: #8f959e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  color: var(--toolbar-text);
+  background: var(--canvas, #ffffff);
+}
+
+/* ---------------- 工具栏 ---------------- */
+#toolbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 600;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--toolbar-border);
+  user-select: none;
+}
+
+.tb-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--toolbar-text);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s;
+}
+
+.tb-btn:hover {
+  background: var(--btn-hover);
+}
+
+.tb-btn:active {
+  background: var(--btn-active);
+}
+
+.tb-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
+
+.tb-btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 500;
+}
+
+.tb-btn.primary:hover {
+  background: #2859d8;
+}
+
+.tb-btn.icon {
+  width: 28px;
+  padding: 0;
+  font-size: 15px;
+}
+
+.tb-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--toolbar-border);
+  margin: 0 4px;
+}
+
+.tb-zoom {
+  min-width: 46px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--status-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tb-dropdown {
+  position: relative;
+}
+
+.tb-menu {
+  display: none;
+  position: absolute;
+  top: 30px;
+  left: 0;
+  min-width: 148px;
+  background: #fff;
+  border: 1px solid var(--toolbar-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  z-index: 700;
+}
+
+.tb-menu.open {
+  display: block;
+}
+
+/* 鼠标移入下拉容器时展开菜单（主题/导出） */
+.tb-dropdown:hover .tb-menu {
+  display: block;
+}
+
+.tb-menu-item {
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tb-menu-item:hover {
+  background: #f2f3f5;
+}
+
+/* ---------------- 画布 ---------------- */
+#canvas-wrap {
+  position: fixed;
+  top: 40px;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  overflow: hidden;
+  background: var(--canvas, #ffffff);
+  cursor: default;
+}
+
+#canvas-wrap.panning {
+  cursor: grabbing;
+}
+
+#canvas-wrap.dragging {
+  cursor: default;
+}
+
+#world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+#edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+#nodes {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+/* ---------------- 节点 ---------------- */
+.mm-node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 5px 5px;
+  border-radius: 8px;
+  border: none; /* 普通节点无边框，仅根节点有边框（inline style） */
+  background: transparent; /* 普通节点无背景，仅展示文字 */
+  color: var(--node-text, #1f2329);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: pre; /* 支持换行符显示 */
+  max-width: 370px; /* 内容最大360 + 左右padding各5 */
+  box-shadow: none; /* 普通节点无阴影 */
+  cursor: default;
+  transition: color 0.12s, opacity 0.12s;
+}
+
+.mm-node:hover {
+  background: #ffffff;
+  border: 1.5px solid #bedaff;
+  color: var(--node-text, #1f2329);
+}
+
+/* 选中：白色背景 + 蓝色边框，右侧显示加号按钮 */
+.mm-node.selected {
+  background: #ffffff;
+  border: 1.5px solid var(--sel, #3370ff);
+  color: var(--node-text, #1f2329);
+  font-weight: 400;
+}
+
+.mm-node.selected:hover {
+  border-color: var(--sel, #3370ff);
+}
+
+/* 编辑中：节点自身白色背景 + 蓝色边框；编辑框为不透明白底覆盖层 */
+.mm-node.editing {
+  background: #ffffff !important;
+  border: 1.5px solid var(--sel, #3370ff) !important;
+  box-shadow: none !important;
+  color: var(--node-text, #1f2329) !important;
+  font-weight: 400 !important;
+}
+
+/* 选中态右侧加号按钮 */
+.mm-add-btn {
+  position: absolute;
+  right: -20px; /* 与折叠按钮并排：折叠在-44px，添加在-20px，中间4px间距 */
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sel, #3370ff);
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  display: none;
+  user-select: none;
+  z-index: 10;
+  transition: background 0.12s;
+}
+.mm-add-btn:hover {
+  background: #2860e0;
+}
+.mm-node.selected .mm-add-btn {
+  display: block;
+}
+
+.mm-node.dragging {
+  opacity: 0.35;
+}
+
+.mm-node-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 20px;
+}
+
+.mm-collapse {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sel, #3370ff);
+  border: none;
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  z-index: 10;
+  display: none; /* 默认隐藏，selected 态显示 */
+  transition: background 0.12s;
+}
+
+.mm-collapse.right {
+  right: -44px; /* 两个按钮并排：折叠在左，添加在右，各20px+4px间距 */
+}
+
+.mm-collapse.left {
+  left: -44px;
+}
+
+.mm-collapse:hover {
+  background: #2860e0;
+}
+
+/* 选中态显示折叠按钮（放到连线上） */
+.mm-node.selected .mm-collapse {
+  display: block;
+}
+
+.mm-collapse:hover {
+  background: #2860e0;
+}
+
+/* ---------------- 编辑框 ----------------
+ * 不透明白底覆盖层：完全覆盖节点（inset 0 + 100%），
+ * 复用节点自身的蓝色边框，遮住折叠按钮与连线，不会透出。 */
+.mm-editor {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 0;
+  background: var(--node-fill, #ffffff);
+  color: var(--node-text, #1f2329);
+  font: inherit;
+  line-height: 20px;
+  padding: 0; /* 节点已有 padding，编辑框 inset:0 覆盖 padding box，不再叠加 */
+  margin: 0;
+  text-align: center;
+  white-space: pre-wrap; /* 支持换行显示 */
+  resize: none;
+  outline: none;
+  z-index: 20;
+  overflow: hidden;
+  scrollbar-width: none;
+}
+.mm-editor::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------------- 拖拽指示 ---------------- */
+#ghost {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  max-width: 280px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: var(--node-fill, #ffffff);
+  border: 1.5px solid var(--sel, #3370ff);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  color: var(--node-text, #1f2329);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#drag-indicator {
+  display: none;
+  position: absolute;
+  pointer-events: none;
+  z-index: 500;
+}
+
+#drag-indicator.drop-child {
+  border: 2px dashed var(--sel, #3370ff);
+  border-radius: 8px;
+  background: var(--glow, rgba(51, 112, 255, 0.08));
+}
+
+#drag-indicator.drop-line {
+  background: var(--sel, #3370ff);
+  border-radius: 2px;
+  box-shadow: 0 0 6px var(--glow, rgba(51, 112, 255, 0.5));
+}
+
+/* ---------------- 状态栏 / 提示 ---------------- */
+#statusbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--status-text);
+  background: var(--toolbar-bg);
+  border-top: 1px solid var(--toolbar-border);
+  user-select: none;
+}
+
+#hintbar {
+  position: fixed;
+  right: 12px;
+  bottom: 28px;
+  z-index: 500;
+  font-size: 11px;
+  color: var(--status-text);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%) translateY(10px);
+  z-index: 900;
+  max-width: 70vw;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: rgba(31, 35, 41, 0.92);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+  word-break: break-all;
+}
+
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
