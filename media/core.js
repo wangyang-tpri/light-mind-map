@@ -73,7 +73,7 @@
   }
 
   function serialize(data) {
-    return JSON.stringify(data, null, 2);
+    return JSON.stringify(data, (key, value) => key.startsWith('_') ? undefined : value, 2);
   }
 
   /* ---------------- 树遍历工具 ---------------- */
@@ -110,7 +110,7 @@
   }
 
   function cloneNode(node) {
-    return JSON.parse(JSON.stringify(node));
+    return JSON.parse(serialize(node));
   }
 
   /* ---------------- 模型：带撤销/重做的树操作 ---------------- */
@@ -192,12 +192,46 @@
       const idx = parent.children.findIndex((c) => c.id === nodeId);
       const node = parent.children.splice(idx, 1)[0];
       parent.children.splice(idx, 0, ...node.children);
+      if (this.data.relations) this.data.relations = this.data.relations.filter(link => link.from !== nodeId && link.to !== nodeId);
+      return true;
+    }
+
+    addRelation(from, to) {
+      if (from === to || !this.find(from) || !this.find(to)) return false;
+      const links = this.data.relations || [];
+      if (links.some(link => (link.from === from && link.to === to) || (link.from === to && link.to === from))) return false;
+      this.commit();
+      this.data.relations = links.concat({ id: genId(), from, to, arrow: 'forward' });
+      return true;
+    }
+
+    updateRelation(id, changes) {
+      const link = (this.data.relations || []).find(item => item.id === id);
+      if (!link) return false;
+      const next = {};
+      if (['none', 'forward', 'backward', 'both'].includes(changes.arrow)) next.arrow = changes.arrow;
+      for (const key of ['control1', 'control2']) {
+        if (changes[key] === null) next[key] = null;
+        else if (changes[key] && Number.isFinite(changes[key].x) && Number.isFinite(changes[key].y)) next[key] = { x: changes[key].x, y: changes[key].y };
+      }
+      if (!Object.keys(next).some(key => JSON.stringify(link[key]) !== JSON.stringify(next[key]))) return false;
+      this.commit();
+      Object.assign(link, next);
+      return true;
+    }
+
+    removeRelation(id) {
+      const links = this.data.relations || [];
+      if (!links.some(link => link.id === id)) return false;
+      this.commit();
+      this.data.relations = links.filter(link => link.id !== id);
       return true;
     }
 
     setText(nodeId, text) {
       const node = findNode(this.root, nodeId);
       if (!node) return false;
+      if (node.text === String(text)) return false;
       this.commit();
       node.text = String(text);
       return true;
@@ -214,6 +248,7 @@
     setCollapsed(nodeId, collapsed) {
       const node = findNode(this.root, nodeId);
       if (!node || !node.children.length) return false;
+      if (node.collapsed === !!collapsed) return false;
       this.commit();
       node.collapsed = !!collapsed;
       return true;
@@ -229,6 +264,9 @@
       const parent = findParent(this.root, nodeId);
       if (!parent) return false;
       if (isDescendant(this.root, nodeId, targetId)) return false;
+      if (!['child', 'before', 'after'].includes(where)) return false;
+      if (!findNode(this.root, targetId)) return false;
+      if (where !== 'child' && !findParent(this.root, targetId)) return false;
       this.commit();
       const idx = parent.children.findIndex((c) => c.id === nodeId);
       const node = parent.children.splice(idx, 1)[0];
@@ -263,8 +301,8 @@
   /* ---------------- 布局算法 ---------------- */
   const LAYOUT = {
     H_GAP: 80, // 父节点与子节点水平间距（连线长度加倍）
-    V_GAP: 8, // 同级节点垂直间距
-    PAD_X: 5, // 节点水平内边距（与 CSS .mm-node padding 一致）
+    V_GAP: 16, // 同级节点垂直间距
+    PAD_X: 3, // 节点水平内边距（与 CSS .mm-node padding 一致）
     PAD_Y: 5, // 节点垂直内边距（节点高度=行高20+5*2=30px）
     LINE_H: 20, // 行高
     MIN_W: 20, // 节点最小宽度
@@ -284,13 +322,13 @@
     const mw = maxWidth || 0;
     // 单行超宽时按字符自动换行（中文可任意断行，英文也按字符断以保证不溢出）
     function wrapLine(line) {
-      if (!ctx || mw <= 0 || line.length === 0) return [line];
+      if (mw <= 0 || line.length === 0) return [line];
       const out = [];
       let cur = '';
       let curW = 0;
       for (let i = 0; i < line.length; i++) {
         const ch = line[i];
-        const cw = ctx.measureText(ch).width;
+        const cw = ctx ? ctx.measureText(ch).width : 13;
         if (curW + cw > mw && cur.length > 0) {
           out.push(cur);
           cur = ch;
@@ -324,16 +362,16 @@
   }
 
   /** 计算每个节点的尺寸与子树包围盒高度（结果写入 node._w/_h/_subtreeHeight）。 */
-  function calcSubtree(node, measure) {
-    const size = measure(node.text);
-    node._w = size.width + LAYOUT.PAD_X * 2;
-    node._h = size.height + LAYOUT.PAD_Y * 2;
+  function calcSubtree(node, measure, settings) {
+    const size = measure(node.text || '输入文本', node);
+    node._w = Math.max(36, size.width + LAYOUT.PAD_X * 2 + 4);
+    node._h = size.height + LAYOUT.PAD_Y * 2 + 4;
     let total = 0;
     for (let i = 0; i < node.children.length; i++) {
-      total += calcSubtree(node.children[i], measure).height;
+      total += calcSubtree(node.children[i], measure, settings).height;
     }
     if (!node.collapsed && node.children.length) {
-      total += LAYOUT.V_GAP * (node.children.length - 1);
+      total += settings.V_GAP * (node.children.length - 1);
       node._subtreeHeight = Math.max(node._h, total);
     } else {
       node._subtreeHeight = node._h;
@@ -341,7 +379,7 @@
     return { height: node._subtreeHeight };
   }
 
-  function placeNode(node, x, topY, side, sideOf, mode) {
+  function placeNode(node, x, topY, side, sideOf, mode, settings) {
     // topY 是「子树包围盒」的顶部；节点自身在子树中垂直居中。
     // 这样兄弟节点的子树按 _subtreeHeight 连续分布，不会因孙子节点以节点为中心
     // 上下分布而越界重叠。
@@ -355,7 +393,7 @@
 
     let total = 0;
     for (let i = 0; i < children.length; i++) total += children[i]._subtreeHeight;
-    total += LAYOUT.V_GAP * (children.length - 1);
+    total += settings.V_GAP * (children.length - 1);
     // 以节点自身的垂直中心为对称轴，上下分布子节点的子树
     const centerY = nodeY + node._h / 2;
     let yCursor = centerY - total / 2;
@@ -366,9 +404,9 @@
       if (mode === 'right') childSide = 'right';
       else if (mode === 'left') childSide = 'left';
       else childSide = side === 'root' ? (i % 2 === 0 ? 'right' : 'left') : side;
-      const cX = childSide === 'right' ? x + node._w + LAYOUT.H_GAP : x - c._w - LAYOUT.H_GAP;
-      placeNode(c, cX, yCursor, childSide, sideOf, mode);
-      yCursor += c._subtreeHeight + LAYOUT.V_GAP;
+      const cX = childSide === 'right' ? x + node._w + settings.H_GAP : x - c._w - settings.H_GAP;
+      placeNode(c, cX, yCursor, childSide, sideOf, mode, settings);
+      yCursor += c._subtreeHeight + settings.V_GAP;
     }
   }
 
@@ -402,9 +440,71 @@
    */
   function layoutTree(root, measure, mode) {
     if (!mode) mode = 'standard';
-    calcSubtree(root, measure);
+    const settings = Object.assign({}, LAYOUT,
+      mode === 'compact' ? { H_GAP: 64, V_GAP: 8 } :
+      mode === 'spacious' ? { H_GAP: 120, V_GAP: 32 } : {});
+    calcSubtree(root, measure, settings);
     const sideOf = new Map();
-    placeNode(root, 0, 0, 'root', sideOf, mode);
+    if (mode === 'org' || mode === 'up') {
+      const widths = new Map();
+      const span = node => {
+        const children = node.collapsed ? [] : node.children;
+        const width = Math.max(node._w, children.reduce((sum, child) => sum + span(child), 0) + Math.max(0, children.length - 1) * 28);
+        widths.set(node.id, width);
+        return width;
+      };
+      span(root);
+      const place = (node, x, y, isRoot) => {
+        node._x = x + (widths.get(node.id) - node._w) / 2;
+        node._y = mode === 'up' ? -y - node._h : y;
+        node._side = isRoot ? 'root' : 'right';
+        if (!isRoot) sideOf.set(node.id, 'right');
+        if (!node.collapsed) node.children.forEach(child => {
+          place(child, x, y + node._h + 72, false);
+          x += widths.get(child.id) + 28;
+        });
+      };
+      place(root, 0, 0, true);
+    } else if (mode === 'radial') {
+      const weights = new Map();
+      const weight = node => {
+        const n = node.collapsed || !node.children.length ? 1 : node.children.reduce((sum, child) => sum + weight(child), 0);
+        weights.set(node.id, n);
+        return n;
+      };
+      weight(root);
+      const nodes = [];
+      walkVisible(root, node => nodes.push(node));
+      const step = Math.max(...nodes.map(node => node._w + 90), nodes.length * 16);
+      const place = (node, depth, start, end) => {
+        const angle = (start + end) / 2;
+        node._x = Math.cos(angle) * depth * step - node._w / 2;
+        node._y = Math.sin(angle) * depth * step - node._h / 2;
+        node._side = depth === 0 ? 'root' : (Math.cos(angle) < 0 ? 'left' : 'right');
+        if (depth) sideOf.set(node.id, node._side);
+        let cursor = start;
+        if (!node.collapsed) node.children.forEach(child => {
+          const next = cursor + (end - start) * weights.get(child.id) / weights.get(node.id);
+          place(child, depth + 1, cursor, next);
+          cursor = next;
+        });
+      };
+      place(root, 0, -Math.PI, Math.PI);
+    } else if (mode === 'outline') {
+      let rowY = 0;
+      const placeOutline = (node, x, isRoot) => {
+        node._x = x;
+        node._y = rowY;
+        node._side = isRoot ? 'root' : 'right';
+        if (!isRoot) sideOf.set(node.id, 'right');
+        rowY += node._h + settings.V_GAP;
+        if (!node.collapsed) node.children.forEach(child => placeOutline(child, x + node._w + settings.H_GAP, false));
+      };
+      placeOutline(root, 0, true);
+    } else {
+      placeNode(root, 0, 0, 'root', sideOf,
+        ['compact', 'spacious'].includes(mode) ? 'right' : mode, settings);
+    }
     const bounds = computeBounds(root);
     const visible = [];
     walkVisible(root, (n) => visible.push(n));
@@ -435,11 +535,101 @@
   }
 
   /* ---------------- 导出：Markdown ---------------- */
+  /** Headings form sections; indented lists become child topics. */
+  function markdownImport(text, name) {
+    if (typeof text !== 'string' || !text.trim()) throw new Error('Markdown 文件为空');
+    const data = defaultData();
+    data.root.text = name || '导入的思维导图';
+    const headings = [{ level: 0, node: data.root }];
+    let lists = [];
+    let first = true;
+    let fence = null;
+    let code = [];
+    let language = '';
+    let paragraph = [];
+    const section = () => headings[headings.length - 1].node;
+    const flush = () => {
+      if (paragraph.length) {
+        const parent = lists.length ? lists[lists.length - 1].node : section();
+        parent.children.push(createNode(paragraph.join(' ')));
+        paragraph = [];
+        first = false;
+      }
+    };
+    const sourceLines = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+    const appendBlock = (source, type, lang) => {
+      const node = createNode(source);
+      node.content = { type, language: lang || '' };
+      (lists.length ? lists[lists.length - 1].node : section()).children.push(node);
+      first = false;
+    };
+    for (let lineIndex = 0; lineIndex < sourceLines.length; lineIndex++) {
+      const raw = sourceLines[lineIndex];
+      const line = raw.replace(/\t/g, '    ');
+      const marker = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fence) {
+        if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length) {
+          appendBlock(code.join('\n'), language === 'mermaid' ? 'mermaid' : 'code', language);
+          fence = null; code = []; first = false;
+        } else code.push(raw);
+        continue;
+      }
+      if (marker) { flush(); fence = marker[1]; language = line.slice(line.indexOf(marker[1]) + marker[1].length).trim().split(/\s+/)[0].toLowerCase(); continue; }
+      if (line.includes('|') && lineIndex + 1 < sourceLines.length && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(sourceLines[lineIndex + 1])) {
+        flush();
+        const rows = [raw, sourceLines[++lineIndex]];
+        while (lineIndex + 1 < sourceLines.length && sourceLines[lineIndex + 1].trim() && sourceLines[lineIndex + 1].includes('|')) rows.push(sourceLines[++lineIndex]);
+        appendBlock(rows.join('\n'), 'table');
+        continue;
+      }
+      const heading = line.match(/^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+      const list = line.match(/^(\s*)(?:[-+*]|\d+[.)])\s+(.*)$/);
+      if (heading) {
+        flush(); lists = [];
+        const level = heading[1].length;
+        if (first && level === 1) {
+          data.root.text = heading[2];
+          headings.push({ level, node: data.root });
+        } else {
+          while (headings.length > 1 && headings[headings.length - 1].level >= level) headings.pop();
+          const node = createNode(heading[2]);
+          section().children.push(node);
+          headings.push({ level, node });
+        }
+        first = false;
+      } else if (list) {
+        flush();
+        const indent = list[1].length;
+        while (lists.length && lists[lists.length - 1].indent >= indent) lists.pop();
+        const node = createNode(list[2].replace(/^\[[ xX]\]\s*/, ''));
+        (lists.length ? lists[lists.length - 1].node : section()).children.push(node);
+        lists.push({ indent, node }); first = false;
+      } else if (!line.trim()) {
+        flush();
+      } else if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        flush(); lists = [];
+      } else {
+        if (!/^\s+/.test(line)) { flush(); lists = []; }
+        paragraph.push(line.trim());
+      }
+    }
+    flush();
+    if (fence) appendBlock(code.join('\n'), language === 'mermaid' ? 'mermaid' : 'code', language);
+    return data;
+  }
+
   function markdownExport(data) {
     const lines = [];
     const walk = (node, depth) => {
       const indent = '  '.repeat(depth);
       const bullet = depth === 0 ? '# ' : '- ';
+      if (node.content && depth > 0) {
+        const prefix = '  '.repeat(depth);
+        if (node.content.type === 'table') lines.push(prefix + '- 表格\n\n' + node.text.split('\n').map(line => prefix + '  ' + line).join('\n'));
+        else lines.push(prefix + '- ' + (node.content.type === 'mermaid' ? '图表' : '代码') + '\n\n' + prefix + '  ```' + (node.content.language || '') + '\n' + node.text.split('\n').map(line => prefix + '  ' + line).join('\n') + '\n' + prefix + '  ```');
+        node.children.forEach(child => walk(child, depth + 1));
+        return;
+      }
       const text = String(node.text).replace(/\n/g, ' ');
       lines.push(indent + bullet + text);
       if (!node.collapsed) {
@@ -452,7 +642,7 @@
 
   /* ---------------- 导出：独立 HTML ---------------- */
   function htmlExport(data) {
-    const json = JSON.stringify(data).replace(/</g, '\\u003c');
+    const json = serialize(data).replace(/</g, '\\u003c');
     const lines = [];
     lines.push('<!DOCTYPE html>');
     lines.push('<html lang="zh-CN"><head><meta charset="UTF-8"/>');
@@ -471,11 +661,11 @@
     lines.push(
       '.node.root{background:#3370FF;color:#fff;border:1.5px solid #3370FF;font-weight:600;box-shadow:0 2px 10px rgba(0,0,0,.12)}.node:hover{color:#3370FF}'
     );
-    lines.push('.node .fold{position:absolute;width:20px;height:20px;border-radius:50%;background:#3370FF;border:none;color:#fff;font-size:12px;line-height:18px;text-align:center;user-select:none;cursor:pointer;display:none}.node:hover .fold{display:block}');
+    lines.push('.node .fold{position:absolute;width:20px;height:20px;border-radius:50%;background:#3370FF;border:none;color:#fff;font-size:12px;line-height:18px;text-align:center;user-select:none;cursor:pointer;display:none!important}.node:hover .fold{display:none!important}');
     lines.push('#hint{position:fixed;left:12px;bottom:10px;font-size:12px;color:#9AA0A6}');
     lines.push('</style></head><body>');
     lines.push('<div id="stage"><div id="world"></div></div>');
-    lines.push('<div id="hint">滚轮缩放 · 拖拽平移 · 点击圆点折叠/展开</div>');
+    lines.push('<div id="hint">滚轮缩放 · 拖拽平移</div>');
     lines.push('<script>');
     lines.push('var DATA=' + json + ';');
     lines.push(
@@ -601,6 +791,7 @@
     visibleOrder,
     walkVisible,
     markdownExport,
+    markdownImport,
     htmlExport,
     THEMES,
   };

@@ -146,6 +146,25 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
         }
         return;
       }
+      case 'import-markdown': {
+        const files = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          filters: { Markdown: ['md', 'markdown'] },
+          openLabel: '导入并生成思维导图',
+        });
+        if (!files?.length) return;
+        try {
+          const bytes = await vscode.workspace.fs.readFile(files[0]);
+          await panel.webview.postMessage({
+            type: 'markdown-imported',
+            content: Buffer.from(bytes).toString('utf8'),
+            name: path.basename(files[0].fsPath, path.extname(files[0].fsPath)),
+          });
+        } catch (err) {
+          panel.webview.postMessage({ type: 'error', message: `导入失败：${err instanceof Error ? err.message : String(err)}` });
+        }
+        return;
+      }
       case 'export': {
         await this._export(document, msg);
         return;
@@ -252,6 +271,8 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'style.css'));
     const coreUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'core.js'));
     const appUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'mindmap.js'));
+    const richUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'rich.js'));
+    const mermaidUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'vendor', 'mermaid.min.js'));
     const csp = webview.cspSource;
 
     return `<!DOCTYPE html>
@@ -259,17 +280,18 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; style-src ${csp}; script-src ${csp}; img-src ${csp} data:; font-src ${csp};" />
+        content="default-src 'none'; style-src ${csp} 'unsafe-inline'; script-src ${csp}; img-src ${csp} data:; font-src ${csp};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>思维导图</title>
   <link rel="stylesheet" href="${cssUri}" />
 </head>
 <body>
   <div id="toolbar">
+    <button class="tb-btn" data-action="import-markdown" title="导入 Markdown 标题和列表，支持撤销">导入 Markdown</button>
     <button class="tb-btn primary" data-action="add-child" title="为选中节点添加子主题（Tab）">＋ 子主题</button>
     <span class="tb-sep"></span>
-    <button class="tb-btn" data-action="undo" title="撤销（Ctrl+Z）">撤销</button>
-    <button class="tb-btn" data-action="redo" title="重做（Ctrl+Y）">重做</button>
+    <button id="btn-undo" class="tb-btn" data-action="undo" title="撤销（Ctrl+Z）">撤销</button>
+    <button id="btn-redo" class="tb-btn" data-action="redo" title="重做（Ctrl+Y）">重做</button>
     <span class="tb-sep"></span>
     <button class="tb-btn icon" data-action="zoom-out" title="缩小">－</button>
     <span class="tb-zoom" id="zoom-label">100%</span>
@@ -282,6 +304,12 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
         <div class="tb-menu-item" data-action="layout-standard">标准（左右分布）</div>
         <div class="tb-menu-item" data-action="layout-right">右向树</div>
         <div class="tb-menu-item" data-action="layout-left">左向树</div>
+        <div class="tb-menu-item" data-action="layout-compact">紧凑右向树</div>
+        <div class="tb-menu-item" data-action="layout-spacious">宽松右向树</div>
+        <div class="tb-menu-item" data-action="layout-outline">目录结构</div>
+        <div class="tb-menu-item" data-action="layout-org">向下组织图</div>
+        <div class="tb-menu-item" data-action="layout-up">向上组织图</div>
+        <div class="tb-menu-item" data-action="layout-radial">放射布局</div>
       </div>
     </div>
     <div class="tb-dropdown">
@@ -307,10 +335,12 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
   </div>
 
   <div id="statusbar"><span id="status-text">就绪</span><span id="status-count"></span></div>
-  <div id="hintbar">Tab 子主题 · Enter 同级 · Shift+Tab 提升层级 · F2 编辑 · Del 删除 · 方向键导航 · 滚轮缩放 / 拖拽平移 · 拖节点调整结构</div>
+  <div id="hintbar">Tab 子主题 · Enter 同级 · Shift+Tab 提升层级 · F2 编辑 · Del 删除 · 方向键导航 · Ctrl+滚轮缩放 / 拖拽平移 · 拖节点调整结构</div>
   <div id="toast"></div>
 
   <script src="${coreUri}"></script>
+  <script src="${mermaidUri}"></script>
+  <script src="${richUri}"></script>
   <script src="${appUri}"></script>
 </body>
 </html>`;

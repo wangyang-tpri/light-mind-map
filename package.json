@@ -101,16 +101,18 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "node scripts/vendor.js && tsc -p ./",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package",
-    "test": "node test/core.test.js && node test/webview.smoke.test.js"
+    "test": "node test/core.test.js && node test/webview.smoke.test.js",
+    "test:browser": "node test/rich.browser.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
     "jsdom": "^29.1.1",
+    "mermaid": "^12.2.0",
     "typescript": "^5.4.0"
   }
 }
