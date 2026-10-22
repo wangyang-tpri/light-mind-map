@@ -10,6 +10,11 @@
   function element(node) {
     const box = document.createElement('div');
     box.className = 'mm-rich mm-rich-' + node.content.type;
+    if (node._textStyle) {
+      box.style.color = node._textStyle.textColor;
+      box.style.fontWeight = String(node._textStyle.fontWeight);
+      box.style.setProperty('--node-text', node._textStyle.textColor);
+    }
     if (node.content.type === 'table') {
       const table = document.createElement('table');
       tableRows(node.text).forEach((cells, i) => {
@@ -28,6 +33,9 @@
       const code = document.createElement('code');
       code.textContent = node.text;
       pre.appendChild(code); box.append(label, pre);
+    }
+    if (node._textStyle) {
+      box.querySelectorAll('pre,td,th').forEach(el => { el.style.fontWeight = String(el.tagName === 'TH' ? Math.max(600, node._textStyle.fontWeight) : node._textStyle.fontWeight); });
     }
     return box;
   }
@@ -65,15 +73,51 @@
     visit(root);
   }
   function svg(node) { return cache.get(keyOf(node))?.svg; }
+  function exportSvg(world, bounds, background) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const root = document.createElementNS(ns, 'svg');
+    root.setAttribute('width', bounds.width);
+    root.setAttribute('height', bounds.height);
+    root.setAttribute('viewBox', [bounds.x, bounds.y, bounds.width, bounds.height].join(' '));
+    root.setAttribute('style', document.body.style.cssText);
+    const style = document.createElementNS(ns, 'style');
+    style.textContent = Array.from(document.styleSheets).flatMap(sheet => {
+      try { return Array.from(sheet.cssRules, rule => rule.cssText); } catch (_) { return []; }
+    }).join('\n');
+    root.appendChild(style);
+    const rect = document.createElementNS(ns, 'rect');
+    for (const [key, value] of Object.entries({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height, fill: background })) rect.setAttribute(key, value);
+    root.appendChild(rect);
+    const edges = world.querySelector('#edges').cloneNode(true);
+    edges.querySelectorAll('.relation-handle,.relation-guide').forEach(el => el.remove());
+    // Use a group to keep paths in world coordinates without a nested SVG viewport.
+    const group = document.createElementNS(ns, 'g');
+    while (edges.firstChild) group.appendChild(edges.firstChild);
+    root.appendChild(group);
+    world.querySelectorAll('.mm-node').forEach(node => {
+      const object = document.createElementNS(ns, 'foreignObject');
+      object.setAttribute('x', parseFloat(node.style.left));
+      object.setAttribute('y', parseFloat(node.style.top));
+      object.setAttribute('width', parseFloat(node.style.width));
+      object.setAttribute('height', parseFloat(node.style.height));
+      const clone = node.cloneNode(true);
+      clone.classList.remove('selected', 'editing', 'dragging');
+      clone.querySelectorAll('.mm-collapse,.mm-add-btn,.mm-editor').forEach(el => el.remove());
+      clone.style.position = 'relative'; clone.style.left = '0'; clone.style.top = '0';
+      object.appendChild(clone); root.appendChild(object);
+    });
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(root);
+  }
   function html(world) {
     const clone = world.cloneNode(true);
-    clone.style.transform = 'none'; clone.style.zoom = '1';
+    clone.style.transform = 'none'; clone.style.zoom = '1'; clone.style.left = '0'; clone.style.top = '0';
     clone.querySelectorAll('.mm-collapse,.mm-add-btn,.mm-editor,.relation-handle,.relation-guide').forEach(el => el.remove());
     clone.querySelectorAll('.mm-node').forEach(el => el.classList.remove('selected', 'editing'));
     const css = Array.from(document.styleSheets).flatMap(sheet => {
       try { return Array.from(sheet.cssRules, rule => rule.cssText); } catch (_) { return []; }
     }).join('\n');
-    return '<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><title>思维导图</title><style>' + css + '\nhtml,body{overflow:auto;min-height:100%;}#world{position:relative;margin:40px;}#edges{pointer-events:none;}</style><body style="' + document.body.style.cssText + '">' + clone.outerHTML + '</body></html>';
+    const navigation = '(function(){const w=document.getElementById("world");let x=40,y=40,z=1,drag=null;const draw=()=>{w.style.zoom=z;w.style.left=x/z+"px";w.style.top=y/z+"px";};document.addEventListener("wheel",e=>{e.preventDefault();const next=Math.max(.2,Math.min(3,z*(e.deltaY<0?1.1:1/1.1)));x=e.clientX-(e.clientX-x)*next/z;y=e.clientY-(e.clientY-y)*next/z;z=next;draw();},{passive:false});document.addEventListener("pointerdown",e=>{if(e.button===0)drag={x:e.clientX,y:e.clientY,px:x,py:y};});document.addEventListener("pointermove",e=>{if(drag){x=drag.px+e.clientX-drag.x;y=drag.py+e.clientY-drag.y;draw();}});document.addEventListener("pointerup",()=>drag=null);document.addEventListener("pointercancel",()=>drag=null);draw();})();';
+    return '<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><title>思维导图</title><style>' + css + '\nhtml,body{overflow:hidden;min-height:100%;}#world{position:absolute;margin:0;}#edges{pointer-events:none;}</style><body style="' + document.body.style.cssText + '">' + clone.outerHTML + '<script>' + navigation + '</script></body></html>';
   }
   function prepareImages(nodes) { return Promise.all(nodes.map(node => cache.get(keyOf(node))?.ready)); }
   function draw(ctx, node, x, y, scale) {
@@ -86,7 +130,7 @@
     ctx.scale(scale, scale);
     ctx.textBaseline = 'top'; ctx.textAlign = 'left';
     const write = (text, left, top, width, font, color) => {
-      ctx.font = font; ctx.fillStyle = color;
+      ctx.font = (node._textStyle?.fontWeight || 400) + ' ' + font.replace(/^600 /, ''); ctx.fillStyle = node._textStyle?.textColor || color;
       let row = '', line = 0;
       for (const ch of text) {
         if (ch === '\n' || (row && ctx.measureText(row + ch).width > width)) {
@@ -104,7 +148,7 @@
         ctx.fillStyle = cell.tagName === 'TH' ? '#edf3ff' : '#ffffff';
         ctx.fillRect(left, top, r.width, r.height);
         ctx.strokeStyle = '#dfe3e9'; ctx.lineWidth = 1; ctx.strokeRect(left, top, r.width, r.height);
-        write(cell.textContent, left + 10, top + 7, r.width - 20, (cell.tagName === 'TH' ? '600 ' : '') + '14px sans-serif', '#1f2329');
+        write(cell.textContent, left + 10, top + 7, r.width - 20, '14px sans-serif', '#1f2329');
       });
     } else {
       ctx.fillStyle = '#f3f5f8'; ctx.fillRect(0, 0, box.width, box.height);
@@ -113,5 +157,5 @@
     }
     ctx.restore(); probe.remove();
   }
-  window.MindMapRich = { element, prepare, tableRows, svg, prepareImages, draw, html };
+  window.MindMapRich = { element, prepare, tableRows, svg, prepareImages, draw, html, exportSvg };
 })();

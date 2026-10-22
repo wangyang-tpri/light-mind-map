@@ -228,6 +228,22 @@
       return true;
     }
 
+    setNodeStyle(id, changes) {
+      const node = this.find(id);
+      if (!node) return false;
+      const next = Object.assign({}, node.style);
+      for (const key of ['lineColor', 'textColor', 'fontWeight']) {
+        if (!(key in changes)) continue;
+        const value = changes[key];
+        if (value === null) delete next[key];
+        else if (key === 'fontWeight' ? [400, 600, 700].includes(Number(value)) : /^#[0-9a-f]{6}$/i.test(value)) next[key] = key === 'fontWeight' ? Number(value) : value;
+      }
+      if (JSON.stringify(node.style || {}) === JSON.stringify(next)) return false;
+      this.commit();
+      node.style = next;
+      return true;
+    }
+
     setText(nodeId, text) {
       const node = findNode(this.root, nodeId);
       if (!node) return false;
@@ -454,13 +470,22 @@
         return width;
       };
       span(root);
-      const place = (node, x, y, isRoot) => {
+      const heights = [];
+      const scan = (node, depth) => {
+        heights[depth] = Math.max(heights[depth] || 0, node._h);
+        if (!node.collapsed) node.children.forEach(child => scan(child, depth + 1));
+      };
+      scan(root, 0);
+      const rows = [0];
+      for (let depth = 1; depth < heights.length; depth++) rows[depth] = rows[depth - 1] + heights[depth - 1] + 72;
+      const place = (node, x, depth, isRoot) => {
+        const y = rows[depth];
         node._x = x + (widths.get(node.id) - node._w) / 2;
         node._y = mode === 'up' ? -y - node._h : y;
         node._side = isRoot ? 'root' : 'right';
         if (!isRoot) sideOf.set(node.id, 'right');
         if (!node.collapsed) node.children.forEach(child => {
-          place(child, x, y + node._h + 72, false);
+          place(child, x, depth + 1, false);
           x += widths.get(child.id) + 28;
         });
       };
@@ -511,19 +536,77 @@
     return { sideOf, bounds, visible };
   }
 
+  /** Shared horizontal bus for organization charts; endpoints stay outside nodes. */
+  function organizationEdges(root, mode, colors) {
+    const result = [];
+    const direction = mode === 'up' ? -1 : 1;
+    const xOf = node => (node._rx ?? node._x) + node._w / 2;
+    const yOf = node => node._ry ?? node._y;
+    walkVisible(root, parent => {
+      const children = parent.collapsed ? [] : parent.children;
+      if (!children.length) return;
+      const x = xOf(parent);
+      const y = yOf(parent) + (direction > 0 ? parent._h + 6 : -6);
+      const entries = children.map(child => ({ child, x: xOf(child), y: yOf(child) + (direction > 0 ? -6 : child._h + 6) }));
+      const nearest = direction > 0 ? Math.min(...entries.map(item => item.y)) : Math.max(...entries.map(item => item.y));
+      const bus = (y + nearest) / 2;
+      const color = colors.get(parent.id);
+      if (entries.length === 1 && Math.abs(x - entries[0].x) < .01) {
+        result.push({ d: 'M' + x + ',' + y + ' L' + x + ',' + entries[0].y, color: colors.get(entries[0].child.id), role: 'stem', from: parent.id, to: entries[0].child.id });
+        return;
+      }
+      const xs = entries.map(item => item.x);
+      const left = Math.min(x, ...xs), right = Math.max(x, ...xs);
+      const radiusAt = item => Math.min(10, Math.abs(item.x - x) / 2, Math.abs(item.y - bus) / 2, Math.abs(y - bus) / 2);
+      const leftItem = entries.find(item => item.x === left && item.x < x);
+      const rightItem = entries.find(item => item.x === right && item.x > x);
+      result.push({ d: 'M' + x + ',' + y + ' L' + x + ',' + bus, color, role: 'trunk', from: parent.id });
+      result.push({ d: 'M' + (left + (leftItem ? radiusAt(leftItem) : 0)) + ',' + bus + ' L' + (right - (rightItem ? radiusAt(rightItem) : 0)) + ',' + bus, color, role: 'bus', from: parent.id });
+      entries.forEach(item => {
+        const turn = item === leftItem ? 1 : item === rightItem ? -1 : 0;
+        const r = turn ? radiusAt(item) : 0;
+        const start = item.x + turn * r;
+        const d = turn ? 'M' + start + ',' + bus + ' Q' + item.x + ',' + bus + ' ' + item.x + ',' + (bus + direction * r) + ' L' + item.x + ',' + item.y : 'M' + item.x + ',' + bus + ' L' + item.x + ',' + item.y;
+        result.push({ d, color: colors.get(item.child.id), role: 'branch', from: parent.id, to: item.child.id });
+      });
+    });
+    return result;
+  }
+
+  function minimapProjection(bounds, width, height) {
+    const scale = Math.min(width / Math.max(bounds.width, 1), height / Math.max(bounds.height, 1));
+    return { scale, x: (width - bounds.width * scale) / 2 - bounds.x * scale, y: (height - bounds.height * scale) / 2 - bounds.y * scale };
+  }
+
+  function pngExportSize(width, height) {
+    if (!(width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height))) throw new Error('导出尺寸无效');
+    const scale = Math.min(3, 32760 / Math.max(width, height), Math.sqrt(64000000 / (width * height)));
+    if (scale < 1) throw new Error('导图过大，请导出 SVG，放大后仍保持清晰');
+    return { scale, width: Math.ceil(width * scale), height: Math.ceil(height * scale) };
+  }
+
   /** 给每个顶级分支分配主题色；后代继承所属分支色。返回 id -> color 的 Map。 */
   function assignBranchColors(root, theme) {
     const map = new Map();
-    const palette = theme.branch || [];
-    const paint = (node, color) => {
+    const paint = (node, inherited) => {
+      const color = /^#[0-9a-f]{6}$/i.test(node.style?.lineColor) ? node.style.lineColor : inherited;
       map.set(node.id, color);
-      for (let i = 0; i < node.children.length; i++) paint(node.children[i], color);
+      node.children.forEach(child => paint(child, color));
     };
-    map.set(root.id, theme.rootFill || '#3370FF');
-    const children = root.children || [];
-    for (let i = 0; i < children.length; i++) {
-      paint(children[i], palette[i % palette.length] || theme.rootFill);
-    }
+    paint(root, theme.rootFill || '#3370FF');
+    return map;
+  }
+
+  function resolveTextStyles(root, theme) {
+    const map = new Map();
+    const walk = (node, inherited) => {
+      const custom = Object.assign({}, inherited);
+      if (/^#[0-9a-f]{6}$/i.test(node.style?.textColor)) custom.textColor = node.style.textColor;
+      if ([400, 600, 700].includes(node.style?.fontWeight)) custom.fontWeight = node.style.fontWeight;
+      map.set(node.id, { textColor: custom.textColor || (node === root ? theme.rootText : theme.nodeText), fontWeight: custom.fontWeight || (node === root ? 600 : 400) });
+      node.children.forEach(child => walk(child, custom));
+    };
+    walk(root, {});
     return map;
   }
 
@@ -771,6 +854,9 @@
   /* ---------------- 对外导出 ---------------- */
   return {
     VERSION,
+    pngExportSize,
+    organizationEdges,
+    minimapProjection,
     FILE_EXTENSIONS,
     genId,
     createNode,
@@ -788,6 +874,7 @@
     createMeasure,
     layoutTree,
     assignBranchColors,
+    resolveTextStyles,
     visibleOrder,
     walkVisible,
     markdownExport,

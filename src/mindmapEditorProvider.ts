@@ -5,7 +5,7 @@ export const MINDMAP_VIEW_TYPE = 'mindmap.editor';
 
 interface ExportMessage {
   type: string;
-  format?: 'markdown' | 'html' | 'png';
+  format?: 'markdown' | 'html' | 'png' | 'svg';
   defaultName?: string;
   content?: string;
   pngBase64?: string;
@@ -176,7 +176,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
 
   private async _export(document: MindMapDocument, msg: ExportMessage): Promise<void> {
     const format = msg.format ?? 'markdown';
-    const extMap: Record<string, string> = { markdown: 'md', html: 'html', png: 'png' };
+    const extMap: Record<string, string> = { markdown: 'md', html: 'html', png: 'png', svg: 'svg' };
     const ext = extMap[format] ?? 'md';
     const base = path.basename(document.uri.fsPath, path.extname(document.uri.fsPath));
     const defaultName = `${msg.defaultName && msg.defaultName.trim() ? msg.defaultName : base}.${ext}`;
@@ -294,7 +294,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     <button id="btn-redo" class="tb-btn" data-action="redo" title="重做（Ctrl+Y）">重做</button>
     <span class="tb-sep"></span>
     <button class="tb-btn icon" data-action="zoom-out" title="缩小">－</button>
-    <span class="tb-zoom" id="zoom-label">100%</span>
+    <button class="tb-btn tb-zoom" id="zoom-label" data-action="zoom-reset" title="恢复 100% 清晰显示">100%</button>
     <button class="tb-btn icon" data-action="zoom-in" title="放大">＋</button>
     <button class="tb-btn" data-action="fit" title="适应窗口">适应</button>
     <span class="tb-sep"></span>
@@ -313,6 +313,18 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
       </div>
     </div>
     <div class="tb-dropdown">
+      <button class="tb-btn" data-action="style-toggle">样式 ▾</button>
+      <div class="tb-menu" id="style-menu">
+        <div class="style-hint" id="style-hint">请先选中节点</div>
+        <label class="style-field">分支线条 <input type="text" id="line-color" aria-label="分支线条颜色" maxlength="7" placeholder="#3370ff" spellcheck="false" /></label>
+        <div class="color-palette" data-color-palette="line-color" aria-label="分支线条调色板"></div>
+        <label class="style-field">文字颜色 <input type="text" id="text-color" aria-label="文字颜色" maxlength="7" placeholder="#1f2329" spellcheck="false" /></label>
+        <div class="color-palette" data-color-palette="text-color" aria-label="文字调色板"></div>
+        <label class="style-field">文字粗细 <select id="font-weight" aria-label="文字粗细"><option value="400">常规</option><option value="600">半粗</option><option value="700">加粗</option></select></label>
+        <button class="tb-btn" data-action="style-reset">恢复继承父级样式</button>
+      </div>
+    </div>
+    <div class="tb-dropdown">
       <button class="tb-btn" data-action="theme-toggle">主题 ▾</button>
       <div class="tb-menu" id="theme-menu"></div>
     </div>
@@ -320,8 +332,9 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
       <button class="tb-btn" data-action="export-toggle">导出 ▾</button>
       <div class="tb-menu" id="export-menu">
         <div class="tb-menu-item" data-action="export-markdown">导出为 Markdown</div>
+        <div class="tb-menu-item" data-action="export-svg">导出为 SVG（无损放大）</div>
         <div class="tb-menu-item" data-action="export-html">导出为 HTML</div>
-        <div class="tb-menu-item" data-action="export-png">导出为 PNG 图片</div>
+        <div class="tb-menu-item" data-action="export-png">导出为高清 PNG 图片</div>
       </div>
     </div>
   </div>

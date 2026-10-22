@@ -18,6 +18,7 @@
   let editingId = null;
   let layout = null; // { sideOf, bounds, visible }
   let branchColors = new Map();
+  let textStyles = new Map();
   let measure = null;
   let fileName = '思维导图.mindmap';
   let scale = 1;
@@ -49,6 +50,112 @@
   ghost.id = 'ghost';
   document.body.appendChild(ghost);
 
+  const svgNamespace = 'http://www.w3.org/2000/svg';
+  const minimap = document.createElement('aside');
+  minimap.id = 'minimap';
+  minimap.setAttribute('aria-label', '思维导图小地图');
+  minimap.innerHTML = '<div class="minimap-header"><span>小地图</span><button type="button" id="minimap-fit" title="适应整个导图">适应</button><button type="button" id="minimap-toggle" title="收起小地图" aria-expanded="true">−</button></div>';
+  const minimapSvg = document.createElementNS(svgNamespace, 'svg');
+  minimapSvg.id = 'minimap-canvas';
+  minimapSvg.setAttribute('tabindex', '0');
+  minimapSvg.setAttribute('role', 'application');
+  minimapSvg.setAttribute('aria-label', '点击定位或拖动视口，方向键平移画布');
+  minimap.appendChild(minimapSvg);
+  canvasWrap.appendChild(minimap);
+  let minimapBounds = null;
+  let minimapDrag = null;
+
+  function updateMinimapViewport() {
+    if (!model || !layout) return;
+    const viewport = minimapSvg.querySelector('.minimap-viewport');
+    if (!viewport) return;
+    const rect = canvasWrap.getBoundingClientRect();
+    viewport.setAttribute('x', -pan.x / scale);
+    viewport.setAttribute('y', -pan.y / scale);
+    viewport.setAttribute('width', Math.max(0, rect.width / scale));
+    viewport.setAttribute('height', Math.max(0, rect.height / scale));
+  }
+
+  function updateMinimap() {
+    if (!model || !layout) return;
+    const { box, minX, minY } = exportBounds();
+    minimapBounds = { x: minX, y: minY, width: box.w, height: box.h };
+    minimapSvg.setAttribute('viewBox', [minX, minY, box.w, box.h].join(' '));
+    minimapSvg.replaceChildren();
+    const lines = document.createElementNS(svgNamespace, 'g');
+    lines.setAttribute('class', 'minimap-edges');
+    edgesSvg.querySelectorAll(':scope > path:not(.relation-guide)').forEach(path => {
+      const copy = path.cloneNode(false);
+      copy.removeAttribute('marker-start'); copy.removeAttribute('marker-end');
+      copy.removeAttribute('class');
+      copy.setAttribute('vector-effect', 'non-scaling-stroke');
+      copy.setAttribute('stroke-width', '0.7');
+      lines.appendChild(copy);
+    });
+    minimapSvg.appendChild(lines);
+    const nodes = document.createElementNS(svgNamespace, 'g');
+    nodes.setAttribute('class', 'minimap-nodes');
+    layout.visible.forEach(node => {
+      const rect = document.createElementNS(svgNamespace, 'rect');
+      for (const [key, value] of Object.entries({ x: node._rx, y: node._ry, width: node._w, height: node._h, rx: 4, fill: branchColors.get(node.id) })) rect.setAttribute(key, value);
+      rect.setAttribute('opacity', node === model.root ? '1' : '.55');
+      nodes.appendChild(rect);
+    });
+    minimapSvg.appendChild(nodes);
+    const viewport = document.createElementNS(svgNamespace, 'rect');
+    viewport.setAttribute('class', 'minimap-viewport');
+    viewport.setAttribute('vector-effect', 'non-scaling-stroke');
+    minimapSvg.appendChild(viewport);
+    updateMinimapViewport();
+  }
+
+  function minimapPoint(event) {
+    const rect = minimapSvg.getBoundingClientRect();
+    if (!minimapBounds || !rect.width || !rect.height) return null;
+    const transform = C.minimapProjection(minimapBounds, rect.width, rect.height);
+    return { x: (event.clientX - rect.left - transform.x) / transform.scale, y: (event.clientY - rect.top - transform.y) / transform.scale };
+  }
+
+  function moveFromMinimap(event) {
+    const point = minimapPoint(event);
+    if (!point || !minimapDrag) return;
+    const rect = canvasWrap.getBoundingClientRect();
+    pan.x = rect.width / 2 - (point.x - minimapDrag.x) * scale;
+    pan.y = rect.height / 2 - (point.y - minimapDrag.y) * scale;
+    applyTransform();
+  }
+
+  minimap.addEventListener('pointerdown', event => event.stopPropagation());
+  minimapSvg.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || !layout) return;
+    event.preventDefault(); event.stopPropagation();
+    if (editingId) commitEdit();
+    const point = minimapPoint(event);
+    if (!point) return;
+    const rect = canvasWrap.getBoundingClientRect();
+    const onViewport = event.target.classList.contains('minimap-viewport');
+    minimapDrag = onViewport ? { x: point.x - (rect.width / 2 - pan.x) / scale, y: point.y - (rect.height / 2 - pan.y) / scale } : { x: 0, y: 0 };
+    if (event.isTrusted) minimapSvg.setPointerCapture?.(event.pointerId);
+    moveFromMinimap(event);
+  });
+  minimapSvg.addEventListener('keydown', event => {
+    const movement = { ArrowLeft: [60, 0], ArrowRight: [-60, 0], ArrowUp: [0, 60], ArrowDown: [0, -60] }[event.key];
+    if (!movement || !layout) return;
+    event.preventDefault(); event.stopPropagation();
+    pan.x += movement[0]; pan.y += movement[1]; applyTransform();
+  });
+  document.getElementById('minimap-fit').addEventListener('click', fitView);
+  document.getElementById('minimap-toggle').addEventListener('click', event => {
+    const collapsed = !minimapSvg.hasAttribute('hidden');
+    minimapSvg.toggleAttribute('hidden', collapsed);
+    minimap.classList.toggle('collapsed', collapsed);
+    event.currentTarget.textContent = collapsed ? '+' : '−';
+    event.currentTarget.title = collapsed ? '展开小地图' : '收起小地图';
+    event.currentTarget.setAttribute('aria-expanded', String(!collapsed));
+    if (!collapsed) updateMinimapViewport();
+  });
+  window.addEventListener('resize', updateMinimapViewport);
+
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   const escId = (id) => (typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : String(id));
 
@@ -64,10 +171,16 @@
     };
   }
   function applyTransform() {
-    // 用 CSS zoom 替代 transform scale：放大时文字重新栅格化，避免模糊
-    world.style.transform = 'translate(' + (pan.x / scale) + 'px,' + (pan.y / scale) + 'px)';
+    // Layout positioning avoids putting text on a scaled compositor texture.
+    const dpr = window.devicePixelRatio || 1;
+    pan.x = Math.round(pan.x * dpr) / dpr;
+    pan.y = Math.round(pan.y * dpr) / dpr;
+    world.style.transform = '';
+    world.style.left = (pan.x / scale) + 'px';
+    world.style.top = (pan.y / scale) + 'px';
     world.style.zoom = String(scale);
     zoomLabel.textContent = Math.round(scale * 100) + '%';
+    updateMinimapViewport();
   }
   function screenRect(node) {
     return {
@@ -90,7 +203,7 @@
     const box = contentBox();
     const rect = canvasWrap.getBoundingClientRect();
     if (box.w <= 0 || box.h <= 0 || rect.width <= 0) return;
-    scale = clamp(Math.min(rect.width / box.w, rect.height / box.h, 1.25), 0.2, 2);
+    scale = clamp(Math.min(rect.width / box.w, rect.height / box.h, 1), 0.2, 2);
     pan.x = (rect.width - box.w * scale) / 2;
     pan.y = (rect.height - box.h * scale) / 2;
     applyTransform();
@@ -117,6 +230,7 @@
   /* ---------------- 选择 ---------------- */
   function selectNode(id) {
     selectedId = id;
+    syncStyleControls();
     const sels = nodesLayer.querySelectorAll('.mm-node.selected');
     for (let i = 0; i < sels.length; i++) sels[i].classList.remove('selected');
     if (id) {
@@ -125,11 +239,34 @@
     }
   }
 
+  function syncStyleControls() {
+    const node = selectedId && model && model.find(selectedId);
+    const hint = document.getElementById('style-hint');
+    if (!hint) return;
+    hint.textContent = !node ? '请先选中节点' : node === model.root ? '中心主题样式（后代默认继承）' : '调整当前节点，后代继承父级样式';
+    for (const [id, value] of [['line-color', node ? branchColors.get(node.id) : '#3370ff'], ['text-color', node ? textStyles.get(node.id)?.textColor : '#1f2329'], ['font-weight', node ? textStyles.get(node.id)?.fontWeight : 400]]) {
+      const control = document.getElementById(id);
+      control.disabled = !node;
+      control.value = value;
+    }
+    document.querySelectorAll('[data-color-target]').forEach(button => {
+      button.disabled = !node;
+      button.setAttribute('aria-pressed', String(!!node && button.dataset.color.toLowerCase() === document.getElementById(button.dataset.colorTarget).value.toLowerCase()));
+    });
+  }
+  function changeNodeStyle(changes) {
+    if (!selectedId || !model) return;
+    if (editingId) commitEdit();
+    if (model.setNodeStyle(selectedId, changes)) { render(); scheduleSave(); }
+  }
+
   /* ---------------- 渲染 ---------------- */
   function render() {
     if (!model) return;
     // 保险性隐藏拖拽指示器，避免拖拽后残留
     if (indicator) indicator.style.display = 'none';
+    textStyles = C.resolveTextStyles(model.root, theme);
+    C.walkVisible(model.root, node => { node._textStyle = textStyles.get(node.id); });
     if (window.MindMapRich) window.MindMapRich.prepare(model.root, () => {
       if (!editingId && model) { render(); fitView(); }
     });
@@ -184,6 +321,13 @@
       el.style.fontWeight = '600';
       el.style.boxShadow = '0 2px 10px rgba(0,0,0,.12)';
     }
+    const textStyle = textStyles.get(node.id);
+    el.style.color = textStyle.textColor;
+    el.style.fontWeight = String(textStyle.fontWeight);
+    el.style.setProperty('--node-text', textStyle.textColor);
+    el.style.setProperty('--text-weight', String(textStyle.fontWeight));
+    el.style.setProperty('--branch-color', color);
+    if (isRoot) { el.style.background = color; el.style.borderColor = color; }
     const span = document.createElement('div');
     span.className = 'mm-node-text';
     span.textContent = node.text || (isRoot ? '中心主题' : '输入文本');
@@ -248,27 +392,16 @@
         return { x: x + dx * t, y: y + dy * t };
       };
       const start = edge(a, ax, ay, p1), end = edge(b, bx, by, p2);
-      return [{ id: link.id, arrow: link.arrow || 'none', start, end, p1, p2, ax, ay, bx, by,
+      return [{ id: link.id, arrow: link.arrow || 'none', color: branchColors.get(link.from), start, end, p1, p2, ax, ay, bx, by,
         d: 'M' + start.x + ',' + start.y + ' C' + p1.x + ',' + p1.y + ' ' + p2.x + ',' + p2.y + ' ' + end.x + ',' + end.y }];
     });
   }
   function specialTreePaths() {
-    const paths = [];
-    layout.visible.forEach(node => {
-      if (node.collapsed) return;
-      node.children.forEach(child => {
-        if (layoutMode === 'radial') {
-          paths.push('M' + (node._rx + node._w / 2) + ',' + (node._ry + node._h / 2) + ' L' + (child._rx + child._w / 2) + ',' + (child._ry + child._h / 2));
-        } else {
-          const up = layoutMode === 'up';
-          const x = node._rx + node._w / 2, y = node._ry + (up ? 0 : node._h);
-          const cx = child._rx + child._w / 2, cy = child._ry + (up ? child._h : 0);
-          const mid = (y + cy) / 2;
-          paths.push('M' + x + ',' + y + ' V' + mid + ' H' + cx + ' V' + cy);
-        }
-      });
-    });
-    return paths;
+    if (layoutMode === 'org' || layoutMode === 'up') return C.organizationEdges(model.root, layoutMode, branchColors);
+    return layout.visible.flatMap(node => node.collapsed ? [] : node.children.map(child => ({
+      d: 'M' + (node._rx + node._w / 2) + ',' + (node._ry + node._h / 2) + ' L' + (child._rx + child._w / 2) + ',' + (child._ry + child._h / 2),
+      color: branchColors.get(child.id), role: 'radial', from: node.id, to: child.id,
+    })));
   }
 
   function drawEdges() {
@@ -276,11 +409,11 @@
     const GAP = 8;   // 连线端点与节点边框的间隙
     const SEG = 22;  // 水平段长度（节点边缘到垂直骨干）
     const R = 14;    // 圆角半径
-    const color = theme.rootFill;
     for (let i = 0; i < layout.visible.length; i++) {
       const node = layout.visible[i];
       const children = node.collapsed ? [] : node.children;
       if (!children.length) continue;
+      const color = branchColors.get(node.id);
       // 按侧分组（左右侧的垂直骨干 x 不同）
       const sides = { right: [], left: [] };
       children.forEach((c) => {
@@ -307,7 +440,7 @@
           svg +=
             '<path d="M' + (px + dir * GAP) + ',' + py +
             ' L' + (cx - dir * GAP) + ',' + py +
-            '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round"/>';
+            '" fill="none" stroke="' + branchColors.get(child.id) + '" stroke-width="2" stroke-linecap="round"/>';
           continue;
         }
         const firstCX = dir === 1 ? sc[0]._rx : sc[0]._rx + sc[0]._w;
@@ -334,22 +467,22 @@
             '<path d="M' + bx + ',' + vStart +
             ' Q' + bx + ',' + cy + ' ' + cornerX + ',' + cy +
             ' L' + ex + ',' + cy +
-            '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round"/>';
+            '" fill="none" stroke="' + branchColors.get(child.id) + '" stroke-width="2" stroke-linecap="round"/>';
         });
       }
     }
     if (['org', 'up', 'radial'].includes(layoutMode)) {
-      svg = specialTreePaths().map(d => '<path d="' + d + '" fill="none" stroke="' + theme.rootFill + '" stroke-width="2" stroke-linejoin="round"/>').join('');
+      svg = specialTreePaths().map(path => '<path d="' + path.d + '" data-edge-role="' + path.role + '" fill="none" stroke="' + path.color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>').join('');
     }
     edgesSvg.innerHTML = svg;
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-    defs.innerHTML = '<marker id="relation-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="' + theme.rootFill + '" stroke-width="1.5"/></marker>';
+    defs.innerHTML = '<marker id="relation-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.5"/></marker>';
     edgesSvg.appendChild(defs);
     relationPaths().forEach(link => {
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('d', link.d);
       path.setAttribute('class', 'relation-line');
-      path.setAttribute('stroke', theme.rootFill);
+      path.setAttribute('stroke', link.color);
       path.setAttribute('stroke-dasharray', '6 5');
       path.setAttribute('stroke-width', selectedRelationId === link.id ? '3' : '2');
       path.setAttribute('fill', 'none');
@@ -384,6 +517,7 @@
         }
       }
     });
+    updateMinimap();
   }
 
   function updateStatus() {
@@ -578,6 +712,9 @@
   }
 
   function onKeyDown(e) {
+    if (e.key === 'Escape' && document.querySelector('.tb-menu.open')) {
+      toggleMenu('', true); e.preventDefault(); return;
+    }
     // 输入控件内的按键由控件自己处理，避免提交/换行事件冒泡触发全局快捷键
     const tag = e.target && e.target.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
@@ -744,6 +881,7 @@
   }
 
   function onPointerMove(e) {
+    if (minimapDrag) { moveFromMinimap(e); return; }
     if (relationDrag) {
       const rect = canvasWrap.getBoundingClientRect();
       relationDrag[relationDrag.key] = { x: (e.clientX - rect.left - pan.x) / scale - relationDrag.origin.x, y: (e.clientY - rect.top - pan.y) / scale - relationDrag.origin.y };
@@ -848,6 +986,7 @@
   }
 
   function onPointerUp() {
+    if (minimapDrag) { minimapDrag = null; return; }
     if (relationDrag) {
       const drag = relationDrag;
       relationDrag = null;
@@ -904,7 +1043,7 @@
     vscode.postMessage({
       type: 'export',
       format: 'html',
-      content: window.MindMapRich && layout.visible.some(node => node.content) ? window.MindMapRich.html(world) : C.htmlExport(model.data),
+      content: window.MindMapRich ? window.MindMapRich.html(world) : C.htmlExport(model.data),
       defaultName: baseName(),
     });
   }
@@ -937,7 +1076,7 @@
     ctx.closePath();
   }
 
-  function renderPng() {
+  function exportBounds() {
     const box = contentBox();
     // Include freely moved curve controls in the export canvas.
     const points = relationPaths().flatMap(link => [link.p1, link.p2]);
@@ -945,14 +1084,19 @@
     const minY = Math.min(0, ...points.map(p => p.y - 30));
     box.w = Math.max(box.w, ...points.map(p => p.x + 30)) - minX;
     box.h = Math.max(box.h, ...points.map(p => p.y + 30)) - minY;
-    // 缩放 1.5 倍（平衡清晰度与文件大小，避免节点元素过大）
-    const s = Math.min(1.5, 4096 / Math.max(box.w, box.h, 1));
-    const W = Math.max(1, Math.ceil(box.w * s));
-    const H = Math.max(1, Math.ceil(box.h * s));
+    return { box, minX, minY };
+  }
+  function renderPng() {
+    const { box, minX, minY } = exportBounds();
+    const size = C.pngExportSize(box.w, box.h);
+    const s = size.scale;
+    const W = size.width;
+    const H = size.height;
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
     const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('图片尺寸超出可用内存，请导出 SVG');
     ctx.fillStyle = theme.canvas;
     ctx.fillRect(0, 0, W, H);
     ctx.translate(-minX * s, -minY * s);
@@ -964,13 +1108,13 @@
     const GAP = 8 * s;
     const SEG = 22 * s;
     const R = 14 * s;
-    const color = theme.rootFill;
-    ctx.strokeStyle = color;
+    ctx.strokeStyle = theme.rootFill;
     ctx.lineWidth = 2 * s;
     ctx.lineCap = 'round';
     for (let i = 0; i < layout.visible.length; i++) {
       const node = layout.visible[i];
       const children = node.collapsed ? [] : node.children;
+      ctx.strokeStyle = branchColors.get(node.id);
       if (!children.length || ['org', 'up', 'radial'].includes(layoutMode)) continue;
       const sides = { right: [], left: [] };
       children.forEach((c) => {
@@ -994,11 +1138,13 @@
           const child = sc[0];
           const cx = (dir === 1 ? child._rx : child._rx + child._w) * s;
           ctx.beginPath();
+          ctx.strokeStyle = branchColors.get(child.id);
           ctx.moveTo(px + dir * GAP, py);
           ctx.lineTo(cx - dir * GAP, py);
           ctx.stroke();
           continue;
         }
+        ctx.strokeStyle = branchColors.get(node.id);
         const firstCX = (dir === 1 ? sc[0]._rx : sc[0]._rx + sc[0]._w) * s;
         const dx = Math.abs(firstCX - px);
         const seg = Math.min(SEG, Math.max(4 * s, dx / 2 - GAP - 2 * s));
@@ -1018,6 +1164,7 @@
           const ex = cx - dir * GAP;
           const corner = cy === minCY && cy < py ? 1 : (cy === maxCY && cy > py ? -1 : 0);
           ctx.beginPath();
+          ctx.strokeStyle = branchColors.get(child.id);
           ctx.moveTo(bx, cy + corner * r);
           ctx.quadraticCurveTo(bx, cy, bx + dir * (corner ? r : 0), cy);
           ctx.lineTo(ex, cy);
@@ -1030,9 +1177,11 @@
     ctx.scale(s, s);
     ctx.strokeStyle = theme.rootFill;
     ctx.lineWidth = 2;
-    if (['org', 'up', 'radial'].includes(layoutMode)) specialTreePaths().forEach(d => ctx.stroke(new Path2D(d)));
+    if (['org', 'up', 'radial'].includes(layoutMode)) {
+      specialTreePaths().forEach(path => { ctx.strokeStyle = path.color; ctx.stroke(new Path2D(path.d)); });
+    }
     ctx.setLineDash([6, 5]);
-    relationPaths().forEach(link => ctx.stroke(new Path2D(link.d)));
+    relationPaths().forEach(link => { ctx.strokeStyle = link.color; ctx.stroke(new Path2D(link.d)); });
     ctx.setLineDash([]);
     const arrow = (tip, control) => {
       const angle = Math.atan2(tip.y - control.y, tip.x - control.x);
@@ -1043,6 +1192,7 @@
       ctx.stroke();
     };
     relationPaths().forEach(link => {
+      ctx.strokeStyle = link.color;
       if (['forward', 'both'].includes(link.arrow)) arrow(link.end, link.p2);
       if (['backward', 'both'].includes(link.arrow)) arrow(link.start, link.p1);
     });
@@ -1059,10 +1209,10 @@
       const isRoot = node === model.root;
       const color = branchColors.get(node.id) || theme.rootFill;
       if (isRoot) {
-        ctx.fillStyle = theme.rootFill;
+        ctx.fillStyle = color;
         roundRect(ctx, x, y, w, h, 8 * s);
         ctx.fill();
-        ctx.strokeStyle = theme.rootFill;
+        ctx.strokeStyle = color;
         ctx.lineWidth = Math.max(1, s);
         ctx.stroke();
       }
@@ -1071,12 +1221,9 @@
         continue;
       }
       // 普通节点：无背景无边框，只绘制文字
-      ctx.fillStyle = isRoot ? theme.rootText : theme.nodeText;
-      if (isRoot) {
-        ctx.font = '600 ' + FONT.replace('14px', (14 * s) + 'px');
-      } else {
-        ctx.font = FONT.replace('14px', (14 * s) + 'px');
-      }
+      const textStyle = textStyles.get(node.id);
+      ctx.fillStyle = textStyle.textColor;
+      ctx.font = textStyle.fontWeight + ' ' + FONT.replace('14px', (14 * s) + 'px');
       ctx.textAlign = 'center';
       // 自动换行（与 createMeasure 的 maxWidth=360 一致，内容区域最大宽度）
       var maxW = 360 * s;
@@ -1110,7 +1257,9 @@
       }
 
     }
-    return canvas.toDataURL('image/png');
+    const png = canvas.toDataURL('image/png');
+    if (!png.startsWith('data:image/png;')) throw new Error('图片过大，请改用 SVG 导出');
+    return png;
   }
 
   /* ---------------- 工具栏 ---------------- */
@@ -1144,6 +1293,16 @@
       else m.classList.remove('open');
     }
   }
+
+  document.addEventListener('pointerdown', e => {
+    if (!e.target.closest('.tb-dropdown')) toggleMenu('', true);
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.querySelector('.tb-menu.open')) {
+      toggleMenu('', true); e.preventDefault(); e.stopImmediatePropagation();
+    }
+  }, true);
+  canvasWrap.addEventListener('wheel', () => toggleMenu('', true));
 
   function onToolbarClick(e) {
     const btn = e.target.closest('[data-action]');
@@ -1198,6 +1357,16 @@
         fitView();
         toggleMenu('layout-menu', true);
         break;
+      case 'zoom-reset': {
+        const rect = canvasWrap.getBoundingClientRect();
+        zoomAt(rect.width / 2, rect.height / 2, 1 / scale);
+        break;
+      }
+      case 'style-toggle':
+        if (!selectedId || !model.find(selectedId)) selectNode(model.root.id);
+        toggleMenu('style-menu');
+        break;
+      case 'style-reset': changeNodeStyle({ lineColor: null, textColor: null, fontWeight: null }); break;
       case 'theme-toggle':
         toggleMenu('theme-menu');
         break;
@@ -1212,6 +1381,12 @@
         exportHtml();
         toggleMenu('export-menu', true);
         break;
+      case 'export-svg': {
+        const { box, minX, minY } = exportBounds();
+        vscode.postMessage({ type: 'export', format: 'svg', content: window.MindMapRich.exportSvg(world, { x: minX, y: minY, width: box.w, height: box.h }, theme.canvas), defaultName: baseName() });
+        toggleMenu('export-menu', true);
+        break;
+      }
       case 'export-png':
         exportPng();
         toggleMenu('export-menu', true);
@@ -1231,8 +1406,8 @@
     fittedOnce = false;
     const data = msg.data ? C.parse(JSON.stringify(msg.data)) : C.defaultData();
     model = new C.MindMapModel(data);
-    const textMeasure = C.createMeasure(FONT, 360);
-    measure = (text, node) => node && node.content && node._richSize ? node._richSize : textMeasure(text);
+    const measures = new Map([400, 600, 700].map(weight => [weight, C.createMeasure(weight + ' ' + FONT, 360)]));
+    measure = (text, node) => node && node.content && node._richSize ? node._richSize : measures.get(textStyles.get(node?.id)?.fontWeight || 400)(text);
     if (msg.theme && C.THEMES[msg.theme]) theme = C.THEMES[msg.theme];
     applyTheme();
     render();
@@ -1406,6 +1581,7 @@
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', () => {
     spaceHeld = false;
+    minimapDrag = null;
   });
 
   nodesLayer.addEventListener('pointerdown', onNodePointerDown);
@@ -1413,6 +1589,7 @@
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointercancel', () => {
+    minimapDrag = null;
     relationDrag = null;
     if (model) drawEdges();
     cancelDrag();
@@ -1471,6 +1648,30 @@
     caption.textContent = label;
     item.appendChild(caption);
   });
+
+  document.querySelectorAll('[data-color-palette]').forEach(palette => {
+    for (const color of ['#3370ff', '#00b96b', '#e5484d', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#1f2329', '#ffffff', '#64748b', '#0f766e', '#166534', '#9a3412', '#7e22ce', '#1d4ed8', '#000000']) {
+      const button = document.createElement('button');
+      button.className = 'color-swatch'; button.type = 'button';
+      button.style.backgroundColor = color;
+      button.dataset.colorTarget = palette.dataset.colorPalette;
+      button.dataset.color = color;
+      button.title = color; button.setAttribute('aria-label', color);
+      button.addEventListener('click', () => {
+        const property = button.dataset.colorTarget === 'line-color' ? 'lineColor' : 'textColor';
+        changeNodeStyle({ [property]: color });
+      });
+      palette.appendChild(button);
+    }
+  });
+
+  for (const [id, property] of [['line-color', 'lineColor'], ['text-color', 'textColor'], ['font-weight', 'fontWeight']]) {
+    document.getElementById(id)?.addEventListener('input', e => {
+      const valid = property === 'fontWeight' || /^#[0-9a-f]{6}$/i.test(e.target.value);
+      e.target.setAttribute('aria-invalid', String(!valid));
+      if (valid) changeNodeStyle({ [property]: property === 'fontWeight' ? Number(e.target.value) : e.target.value });
+    });
+  }
 
   buildThemeMenu();
   applyTheme();

@@ -2,7 +2,7 @@
   "name": "light-mind-map",
   "displayName": "轻量思维导图",
   "description": "轻量级思维导图编辑器：布局、编辑、拖拽、折叠、撤销、导出 Markdown / HTML / PNG，使用 .mindmap 文件格式。",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "publisher": "wangyang-tpri",
   "license": "MIT",
   "engines": {
