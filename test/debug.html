@@ -1,13 +1,18 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8" />
-<title>思维导图 Debug 页（浏览器直接打开，验证 UI）</title>
-<link rel="stylesheet" href="../media/style.css" />
-<style>
-  html, body { height: 100%; }
-</style>
+  <meta charset="UTF-8" />
+  <title>知枝 · MindSprout 调试页（浏览器直接打开，验证 UI）</title>
+  <link rel="stylesheet" href="../media/style.css" />
+  <style>
+    html,
+    body {
+      height: 100%;
+    }
+  </style>
 </head>
+
 <body>
   <div id="toolbar">
     <button class="tb-btn primary" data-action="add-child" title="添加子主题（Tab）">＋ 子主题</button>
@@ -35,7 +40,6 @@
     <div class="tb-dropdown">
       <button class="tb-btn" data-action="export-toggle">导出 ▾</button>
       <div class="tb-menu" id="export-menu">
-        <div class="tb-menu-item" data-action="export-markdown">导出为 Markdown</div>
         <div class="tb-menu-item" data-action="export-html">导出为 HTML</div>
         <div class="tb-menu-item" data-action="export-png">导出为 PNG 图片</div>
       </div>
@@ -66,18 +70,20 @@
                 root: {
                   id: 'r1', text: '中心主题', collapsed: false,
                   children: [
-                    { id: 'a', text: '分支一', collapsed: false, children: [
-                      { id: 'a1', text: '想法 1', collapsed: false, children: [] },
-                      { id: 'a2', text: '想法 2', collapsed: false, children: [] },
-                      { id: 'a3', text: '想法 3', collapsed: false, children: [] }
-                    ] },
+                    {
+                      id: 'a', text: '分支一', collapsed: false, children: [
+                        { id: 'a1', text: '想法 1', collapsed: false, children: [] },
+                        { id: 'a2', text: '想法 2', collapsed: false, children: [] },
+                        { id: 'a3', text: '想法 3', collapsed: false, children: [] }
+                      ]
+                    },
                     { id: 'b', text: '分支二', collapsed: false, children: [] },
                     { id: 'c', text: '分支三', collapsed: false, children: [] }
                   ]
                 }
               };
               window.dispatchEvent(new MessageEvent('message', {
-                data: { type: 'init', data: data, fileName: 'debug.mindmap', theme: 'feishu' }
+                data: { type: 'init', data: data, fileName: 'debug.mindmap', theme: 'lightMap' }
               }));
             }, 100);
           }
@@ -88,4 +94,5 @@
   <script src="../media/core.js"></script>
   <script src="../media/mindmap.js"></script>
 </body>
+
 </html>

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-export const MINDMAP_VIEW_TYPE = 'mindmap.editor';
+export const MINDMAP_VIEW_TYPE = 'mindsprout.editor';
 
 interface ExportMessage {
   type: string;
@@ -10,6 +10,8 @@ interface ExportMessage {
   content?: string;
   pngBase64?: string;
   data?: unknown;
+  src?: string;
+  requestId?: string;
 }
 
 /**
@@ -73,6 +75,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
   readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
   private readonly _panels = new Map<MindMapDocument, vscode.WebviewPanel>();
+  private readonly _imageBases = new Map<vscode.WebviewPanel, vscode.Uri>();
   private readonly _markdownPreviews = new Map<string, vscode.WebviewPanel>();
 
   constructor(private readonly _context: vscode.ExtensionContext) {}
@@ -82,22 +85,24 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     const previewColumn = Math.min(sourceColumn + 1, vscode.ViewColumn.Nine);
     const key = source.uri.toString();
     const existing = this._markdownPreviews.get(key);
-    if (existing) { existing.reveal(previewColumn, true); return; }
+    if (existing) { existing.reveal(previewColumn, true); existing.webview.html = this._getHtml(existing.webview); return; }
     const name = path.basename(source.uri.fsPath) || 'Markdown';
-    const panel = vscode.window.createWebviewPanel('mindmap.markdownPreview', `${name} · 思维导图预览`, { viewColumn: previewColumn, preserveFocus: true }, {
+    const panel = vscode.window.createWebviewPanel('mindsprout.markdownPreview', `${name} · 知枝预览`, { viewColumn: previewColumn, preserveFocus: true }, {
       enableScripts: true,
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
     });
     this._markdownPreviews.set(key, panel);
+    this._imageBases.set(panel, source.uri);
     let ready = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const update = () => panel.webview.postMessage({
       type: 'init', markdown: source.getText(), readOnly: true, fileName: name,
-      theme: vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'feishu'),
+      theme: vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'lightMap'),
     });
     const messages = panel.webview.onDidReceiveMessage((msg: ExportMessage) => {
       if (msg.type === 'ready') { ready = true; void update(); }
+      else if (msg.type === 'resolve-image') void this._resolveImage(panel, msg);
       else if (msg.type === 'export') void this._export({uri: source.uri}, msg);
     });
     const changes = vscode.workspace.onDidChangeTextDocument(event => {
@@ -108,6 +113,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     panel.onDidDispose(() => {
       clearTimeout(timer); messages.dispose(); changes.dispose();
       this._markdownPreviews.delete(key);
+      this._imageBases.delete(panel);
     });
     panel.webview.html = this._getHtml(panel.webview);
   }
@@ -122,8 +128,10 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     _token: vscode.CancellationToken
   ): Promise<void> {
     this._panels.set(document, webviewPanel);
+    this._imageBases.set(webviewPanel, document.uri);
     webviewPanel.onDidDispose(() => {
       this._panels.delete(document);
+      this._imageBases.delete(webviewPanel);
     });
 
     webviewPanel.title = path.basename(document.uri.fsPath);
@@ -148,9 +156,10 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     msg: ExportMessage
   ): Promise<void> {
     switch (msg.type) {
+      case 'resolve-image': await this._resolveImage(panel, msg); return;
       case 'ready': {
         // 向 Webview 下发文档数据（数据由 Webview 持有为权威状态，扩展侧负责落盘）
-        const themeName = vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'feishu');
+        const themeName = vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'lightMap');
         panel.webview.postMessage({
           type: 'init',
           data: document.data,
@@ -191,6 +200,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
         if (!files?.length) return;
         try {
           const bytes = await vscode.workspace.fs.readFile(files[0]);
+          this._imageBases.set(panel, files[0]);
           await panel.webview.postMessage({
             type: 'markdown-imported',
             content: Buffer.from(bytes).toString('utf8'),
@@ -207,6 +217,36 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
       }
       default:
         return;
+    }
+  }
+
+  private async _resolveImage(panel: vscode.WebviewPanel, msg: ExportMessage): Promise<void> {
+    const source = msg.src || '';
+    try {
+      if (!source || source.length > 8192) throw new Error('图片路径无效');
+      let bytes: Uint8Array;
+      let extension = path.extname(source.split(/[?#]/)[0]).toLowerCase();
+      let mime = '';
+      if (/^https?:\/\//i.test(source)) {
+        const response = await fetch(source, { signal: AbortSignal.timeout(15000) });
+        if (!response.ok) throw new Error('图片下载失败');
+        if (Number(response.headers.get('content-length')) > 20 * 1024 * 1024) throw new Error('图片超过 20 MB');
+        mime = (response.headers.get('content-type') || '').split(';')[0];
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } else {
+        const base = this._imageBases.get(panel);
+        if (!base) throw new Error('缺少图片所在目录');
+        if (/^[a-z][a-z0-9+.-]*:/i.test(source) && !/^file:/i.test(source) && !/^[a-z]:[\\/]/i.test(source)) throw new Error('不支持的图片地址');
+        const uri = /^file:/i.test(source) ? vscode.Uri.parse(source) : path.isAbsolute(source) ? vscode.Uri.file(source) : vscode.Uri.joinPath(base, '..', decodeURIComponent(source.split(/[?#]/)[0]));
+        extension = path.extname(uri.fsPath).toLowerCase();
+        bytes = await vscode.workspace.fs.readFile(uri);
+      }
+      const types: Record<string, string> = { '.png':'image/png', '.jpg':'image/jpeg', '.jpeg':'image/jpeg', '.gif':'image/gif', '.webp':'image/webp', '.svg':'image/svg+xml', '.bmp':'image/bmp', '.avif':'image/avif' };
+      mime = /^image\/(png|jpeg|gif|webp|svg\+xml|bmp|avif)$/.test(mime) ? mime : types[extension];
+      if (!mime || bytes.length > 20 * 1024 * 1024) throw new Error('不支持的图片格式或图片超过 20 MB');
+      await panel.webview.postMessage({ type:'image-resolved', requestId:msg.requestId, src:source, dataUri:'data:' + mime + ';base64,' + Buffer.from(bytes).toString('base64') });
+    } catch (error) {
+      await panel.webview.postMessage({ type:'image-resolved', requestId:msg.requestId, src:source, error:error instanceof Error ? error.message : '图片加载失败' });
     }
   }
 
@@ -246,7 +286,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     await document.reload();
     const panel = this._panels.get(document);
     if (panel) {
-      const themeName = vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'feishu');
+      const themeName = vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'lightMap');
       panel.webview.postMessage({
         type: 'init',
         data: document.data,
@@ -305,10 +345,9 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
 
   private _getHtml(webview: vscode.Webview): string {
     const cssUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'style.css'));
-    const coreUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'core.js'));
-    const appUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'mindmap.js'));
-    const richUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'rich.js'));
+    const appUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'mindsprout.js'));
     const mermaidUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'vendor', 'mermaid.min.js'));
+    const bootstrapUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'bootstrap.js'));
     const csp = webview.cspSource;
 
     return `<!DOCTYPE html>
@@ -318,25 +357,25 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; style-src ${csp} 'unsafe-inline'; script-src ${csp}; img-src ${csp} data:; font-src ${csp};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>思维导图</title>
+  <title>知枝 · MindSprout</title>
   <link rel="stylesheet" href="${cssUri}" />
 </head>
 <body>
-  <div id="toolbar">
-  <button class="tb-btn primary" data-action="add-child" title="为选中节点添加子主题（Tab）">＋ 子主题</button>
-    <button class="tb-btn" data-action="import-markdown" title="导入 Markdown 标题和列表，支持撤销">导入 Markdown</button>
-    <button id="btn-toggle-all-nodes" class="tb-btn" data-action="toggle-all-nodes" title="展开全部节点" disabled>节点一键展开</button>
+  <div id="toolbar" role="toolbar" aria-label="知枝工具栏" aria-orientation="vertical">
+  <button class="tb-btn primary tb-tool" data-action="add-child" title="为选中节点添加子主题（Tab）" aria-label="＋ 子主题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 13v8m-4-4h8" /></svg><span class="tool-label">＋ 子主题</span></button>
+    <button class="tb-btn tb-tool" data-action="import-markdown" title="导入 Markdown 标题和列表，支持撤销" aria-label="导入 Markdown"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 13l4 4 4-4m-4-3v7" /></svg><span class="tool-label">导入 Markdown</span></button>
+    <button id="btn-toggle-all-nodes" class="tb-btn tb-tool" data-action="toggle-all-nodes" title="展开全部节点" disabled aria-label="节点一键展开"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 14h6v6h-6zM14 4h6v6h-6zM4 14h6v6H4z" /></svg><span class="tool-label">节点一键展开</span></button>
     <span class="tb-sep"></span>
-    <button id="btn-undo" class="tb-btn" data-action="undo" title="撤销（Ctrl+Z）">撤销</button>
-    <button id="btn-redo" class="tb-btn" data-action="redo" title="重做（Ctrl+Y）">重做</button>
+    <button id="btn-undo" class="tb-btn tb-tool" data-action="undo" title="撤销（Ctrl+Z）" aria-label="撤销"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5L4 10l5 5M4 10h10a6 6 0 0 1 0 12" /></svg><span class="tool-label">撤销</span></button>
+    <button id="btn-redo" class="tb-btn tb-tool" data-action="redo" title="重做（Ctrl+Y）" aria-label="重做"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l5 5-5 5M20 10H10a6 6 0 0 0 0 12" /></svg><span class="tool-label">重做</span></button>
     <span class="tb-sep"></span>
-    <button class="tb-btn icon" data-action="zoom-out" title="缩小">－</button>
-    <button class="tb-btn tb-zoom" id="zoom-label" data-action="zoom-reset" title="恢复 100% 清晰显示">100%</button>
-    <button class="tb-btn icon" data-action="zoom-in" title="放大">＋</button>
-    <button class="tb-btn" data-action="fit" title="适应窗口">适应</button>
+    <button class="tb-btn icon tb-tool" data-action="zoom-out" title="缩小" aria-label="－"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0M7 10h6" /></svg><span class="tool-label">－</span></button>
+    <button class="tb-btn tb-zoom tb-tool" id="zoom-label" data-action="zoom-reset" title="恢复 100% 清晰显示" aria-label="100%"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M8 8h8v8H8z" /></svg><span class="tool-label">100%</span></button>
+    <button class="tb-btn icon tb-tool" data-action="zoom-in" title="放大" aria-label="＋"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0M7 10h6m-3-3v6" /></svg><span class="tool-label">＋</span></button>
+    <button class="tb-btn tb-tool" data-action="fit" title="适应窗口" aria-label="适应"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6M8 8h8v8H8z" /></svg><span class="tool-label">适应</span></button>
     <span class="tb-sep"></span>
     <div class="tb-dropdown">
-      <button class="tb-btn" data-action="layout-toggle">形状 ▾</button>
+      <button class="tb-btn tb-tool" data-action="layout-toggle" aria-label="形状"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6v5H9zM2 16h6v5H2zM16 16h6v5h-6zM12 8v4M5 16v-4h14v4" /></svg><span class="tool-label">形状</span></button>
       <div class="tb-menu" id="layout-menu">
         <div class="tb-menu-item" data-action="layout-standard">标准（左右分布）</div>
         <div class="tb-menu-item" data-action="layout-right">右向树</div>
@@ -346,12 +385,14 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
         <div class="tb-menu-item" data-action="layout-outline">目录结构</div>
         <div class="tb-menu-item" data-action="layout-org">向下组织图</div>
         <div class="tb-menu-item" data-action="layout-up">向上组织图</div>
-        <div class="tb-menu-item" data-action="layout-radial">放射布局</div>
       </div>
     </div>
     <div class="tb-dropdown">
-      <button class="tb-btn" data-action="style-toggle">样式 ▾</button>
+      <button class="tb-btn tb-tool" data-action="style-toggle" aria-label="样式"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20L17 7l3 3L7 23zM14 4l3-3 6 6-3 3M3 3h7M6.5 3v10" /></svg><span class="tool-label">样式</span></button>
       <div class="tb-menu" id="style-menu">
+        <label class="style-field">画布背景 <input type="text" id="canvas-color" aria-label="画布背景颜色" maxlength="7" placeholder="#ffffff" spellcheck="false" /></label>
+        <div class="color-palette" data-color-palette="canvas-color" aria-label="画布背景调色板"></div>
+        <button class="tb-btn" data-action="canvas-reset">恢复主题背景</button>
         <div class="style-hint" id="style-hint">请先选中节点</div>
         <label class="style-field">分支线条 <input type="text" id="line-color" aria-label="分支线条颜色" maxlength="7" placeholder="#3370ff" spellcheck="false" /></label>
         <div class="color-palette" data-color-palette="line-color" aria-label="分支线条调色板"></div>
@@ -362,11 +403,11 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
       </div>
     </div>
     <div class="tb-dropdown">
-      <button class="tb-btn" data-action="theme-toggle">主题 ▾</button>
+      <button class="tb-btn tb-tool" data-action="theme-toggle" aria-label="主题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-4 2 2 0 0 1 1-4h2a3 3 0 0 0 3-3c0-4-4-7-9-7M7 9h.01M10 6h.01M15 6h.01M18 9h.01" /></svg><span class="tool-label">主题</span></button>
       <div class="tb-menu" id="theme-menu"></div>
     </div>
     <div class="tb-dropdown">
-      <button class="tb-btn" data-action="export-toggle">导出 ▾</button>
+      <button class="tb-btn tb-tool" data-action="export-toggle" aria-label="导出"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4M5 13v8h14v-8" /></svg><span class="tool-label">导出</span></button>
       <div class="tb-menu" id="export-menu">
         <div class="tb-menu-item" data-action="export-svg">导出为 SVG（无损放大）</div>
         <div class="tb-menu-item" data-action="export-html">导出为 HTML</div>
@@ -387,9 +428,8 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
   <div id="hintbar">Tab 子主题 · Enter 同级 · Shift+Tab 提升层级 · F2 编辑 · Del 删除 · 方向键导航 · Ctrl+滚轮缩放 / 拖拽平移 · 拖节点调整结构</div>
   <div id="toast"></div>
 
-  <script src="${coreUri}"></script>
+  <script src="${bootstrapUri}"></script>
   <script src="${mermaidUri}"></script>
-  <script src="${richUri}"></script>
   <script src="${appUri}"></script>
 </body>
 </html>`;

@@ -564,3 +564,38 @@ body {
 .mm-node:hover, .mm-node.selected { z-index: 25; }
 .mm-node.editing { z-index: 30; }
 body.readonly-preview [data-action="add-child"], body.readonly-preview [data-action="import-markdown"], body.readonly-preview [data-action="style-toggle"], body.readonly-preview .mm-add-btn { display: none !important; }
+
+/* 左侧 SVG 工具栏：滚动工具栏时，菜单与提示仍在视口内。 */
+#toolbar {
+  top: max(12px, calc((100vh - 580px) / 2)); left: 14px; right: auto;
+  width: 56px; height: auto; max-height: calc(100vh - 64px);
+  flex-direction: column; align-items: center; gap: 3px; padding: 9px 7px;
+  overflow-x: hidden; overflow-y: auto; scrollbar-width: none;
+  border: 1px solid var(--toolbar-border); border-radius: 13px;
+  background: var(--toolbar-bg); box-shadow: 0 3px 14px rgba(31,35,41,.10);
+}
+#toolbar::-webkit-scrollbar { display: none; }
+#toolbar > *, #toolbar .tb-dropdown { flex-shrink: 0; }
+#toolbar .tb-tool {
+  width: 38px; min-width: 38px; height: 34px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 7px; position: relative; color: #626873;
+}
+#toolbar .tb-tool svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+#toolbar .tb-tool.primary { color: var(--primary); background: #e8f0ff; border-color: transparent; }
+#toolbar .tb-tool:hover:not(:disabled), #toolbar .tb-tool[aria-expanded="true"] { background: #e8f0ff; color: var(--primary); }
+#toolbar .tb-tool:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+#toolbar .tb-tool.is-collapse svg { transform: scale(.78); }
+#toolbar .tb-tool .tool-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+#toolbar .tb-sep { width: 28px; height: 1px; margin: 5px 0; }
+#toolbar .tb-menu { position: fixed; max-width: calc(100vw - 16px); max-height: calc(100vh - 48px); overflow: auto; }
+#toolbar-tooltip { position: fixed; z-index: 900; pointer-events: none; background: #252a34; color: #fff; padding: 7px 10px; border-radius: 6px; font-size: 12px; line-height: 18px; max-width: calc(100vw - 90px); box-shadow: 0 2px 8px #0002; }
+#toolbar-tooltip[hidden] { display: none; }
+#canvas-wrap { top: 0; left: 84px; }
+@media (max-width: 480px) {
+  #toolbar { left: 6px; }
+  #canvas-wrap { left: 68px; }
+}
+.mm-rich-image { text-align: center; }
+.mm-rich-image img { display: block; max-width: 520px; max-height: 520px; height: auto; object-fit: contain; margin: auto; border-radius: 4px; }
+.mm-image-status { max-width: 320px; padding: 12px; color: var(--status-text); overflow-wrap: anywhere; }

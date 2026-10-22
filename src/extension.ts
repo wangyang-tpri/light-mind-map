@@ -9,7 +9,7 @@ function defaultData(): Record<string, unknown> {
   const nid = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   return {
     version: 1,
-    meta: { createdBy: 'light-mind-map', createdAt: now },
+    meta: { createdBy: 'MindSprout', createdAt: now },
     root: {
       id: nid,
       text: '',
@@ -30,7 +30,7 @@ async function createMindMapFile(targetFolder?: vscode.Uri): Promise<void> {
     let index = 1;
     let candidate: vscode.Uri;
     for (;;) {
-      candidate = vscode.Uri.joinPath(folder, index === 1 ? '思维导图.mindmap' : `思维导图${index}.mindmap`);
+      candidate = vscode.Uri.joinPath(folder, index === 1 ? '知枝.mindmap' : `知枝${index}.mindmap`);
       try {
         await vscode.workspace.fs.stat(candidate);
         index += 1;
@@ -41,7 +41,7 @@ async function createMindMapFile(targetFolder?: vscode.Uri): Promise<void> {
     target = candidate;
   } else {
     target = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file('思维导图.mindmap'),
+      defaultUri: vscode.Uri.file('知枝.mindmap'),
       filters: { '思维导图': ['mindmap'] },
       saveLabel: '创建',
     });
@@ -69,18 +69,19 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false,
     }),
-    vscode.commands.registerCommand('mindmap.markdownPreview', () => {
-      const source = vscode.window.activeTextEditor?.document;
+    vscode.commands.registerCommand('mindsprout.markdownPreview', (uri?: vscode.Uri) => {
+      const editor = uri ? vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri.toString()) ?? vscode.window.activeTextEditor : vscode.window.activeTextEditor;
+      const source = editor?.document;
       if (!source || (source.languageId !== 'markdown' && !/\.(md|markdown)$/i.test(source.fileName))) {
-        void vscode.window.showInformationMessage('请先打开一个 Markdown 文件，再执行 Markdown: lightMap。');
+        void vscode.window.showInformationMessage('请先打开一个 Markdown 文件，再执行 Markdown: MindSprout。');
         return;
       }
-      provider.openMarkdownPreview(source, vscode.window.activeTextEditor?.viewColumn);
+      provider.openMarkdownPreview(source, editor?.viewColumn);
     }),
-    vscode.commands.registerCommand('mindmap.new', () => createMindMapFile()),
-    vscode.commands.registerCommand('mindmap.newInFolder', (uri?: vscode.Uri) => createMindMapFile(uri)),
-    vscode.commands.registerCommand('mindmap.export', () => {
-      vscode.window.showInformationMessage('请在思维导图编辑器中点击右上角「导出」按钮，或使用工具栏中的导出菜单。');
+    vscode.commands.registerCommand('mindsprout.new', () => createMindMapFile()),
+    vscode.commands.registerCommand('mindsprout.newInFolder', (uri?: vscode.Uri) => createMindMapFile(uri)),
+    vscode.commands.registerCommand('mindsprout.export', () => {
+      vscode.window.showInformationMessage('请在知枝 · MindSprout 编辑器的左侧工具栏中使用导出菜单。');
     })
   );
 }

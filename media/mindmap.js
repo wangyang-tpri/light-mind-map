@@ -8,20 +8,28 @@
   'use strict';
 
   const C = window.MindMapCore;
-  const vscode = acquireVsCodeApi();
+  const vscode = window.mindSproutHost || acquireVsCodeApi();
+  const imageRequests = new Map();
+  let imageSequence = 0;
+  window.MindMapRich?.setImageLoader?.(src => new Promise((resolve, reject) => {
+    const requestId = 'image-' + (++imageSequence);
+    const timer = setTimeout(() => { imageRequests.delete(requestId); reject(new Error('图片加载超时')); }, 25000);
+    imageRequests.set(requestId, {resolve, reject, timer});
+    vscode.postMessage({type:'resolve-image', requestId, src});
+  }));
   const FONT = '14px -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
 
   /* ---------------- 状态 ---------------- */
   let model = null;
   let readOnly = false;
-  let theme = C.THEMES.feishu;
+  let theme = C.THEMES.lightMap;
   let selectedId = null;
   let editingId = null;
   let layout = null; // { sideOf, bounds, visible }
   let branchColors = new Map();
   let textStyles = new Map();
   let measure = null;
-  let fileName = '思维导图.mindmap';
+  let fileName = '知枝.mindmap';
   let scale = 1;
   let pan = { x: 0, y: 0 };
   let saveTimer = null;
@@ -35,7 +43,6 @@
   let relationSource = null;
   let selectedRelationId = null;
   let relationDrag = null;
-  let bulkToggleUsed = false;
   let layoutMode = 'right'; // standard / right / left
 
   /* ---------------- DOM ---------------- */
@@ -44,6 +51,61 @@
   const edgesSvg = document.getElementById('edges');
   const nodesLayer = document.getElementById('nodes');
   const zoomLabel = document.getElementById('zoom-label');
+  // SVG 工具栏：标签保留给辅助技术，悬停和键盘聚焦显示提示。
+  const toolbar = document.getElementById('toolbar');
+  toolbar.setAttribute('role', 'toolbar');
+  toolbar.setAttribute('aria-label', '知枝 · MindSprout 工具栏');
+  toolbar.setAttribute('aria-orientation', 'vertical');
+  const toolIcons = {
+    'add-child': 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 13v8m-4-4h8',
+    'import-markdown': 'M14 3H5v18h14V8zM14 3v5h5M8 13l4 4 4-4m-4-3v7',
+    'toggle-all-nodes': 'M4 4h6v6H4zM14 14h6v6h-6zM14 4h6v6h-6zM4 14h6v6H4z',
+    undo: 'M9 5L4 10l5 5M4 10h10a6 6 0 0 1 0 12',
+    redo: 'M15 5l5 5-5 5M20 10H10a6 6 0 0 0 0 12',
+    'zoom-out': 'M21 21l-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0M7 10h6',
+    'zoom-reset': 'M3 8V3h5M16 3h5v5M21 16v5h-5M8 21H3v-5M8 8h8v8H8z',
+    'zoom-in': 'M21 21l-5-5M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0M7 10h6m-3-3v6',
+    fit: 'M3 9V3h6M15 3h6v6M21 15v6h-6M9 21H3v-6M8 8h8v8H8z',
+    'layout-toggle': 'M9 3h6v5H9zM2 16h6v5H2zM16 16h6v5h-6zM12 8v4M5 16v-4h14v4',
+    'style-toggle': 'M4 20L17 7l3 3L7 23zM14 4l3-3 6 6-3 3M3 3h7M6.5 3v10',
+    'theme-toggle': 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 1-4 2 2 0 0 1 1-4h2a3 3 0 0 0 3-3c0-4-4-7-9-7M7 9h.01M10 6h.01M15 6h.01M18 9h.01',
+    'export-toggle': 'M12 15V3m-4 4 4-4 4 4M5 13v8h14v-8'
+  };
+  toolbar.querySelectorAll(':scope > button, :scope > .tb-dropdown > button').forEach(button => {
+    const label = button.textContent.replace(' ▾', '').trim();
+    button.dataset.tooltip = button.title || label;
+    button.removeAttribute('title');
+    button.setAttribute('aria-label', label);
+    button.classList.add('tb-tool');
+    button.replaceChildren();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS(svg.namespaceURI, 'path');
+    path.setAttribute('d', toolIcons[button.dataset.action]); svg.appendChild(path); button.appendChild(svg);
+    const caption = document.createElement('span'); caption.className = 'tool-label'; caption.textContent = label; button.appendChild(caption);
+    if (button.parentElement.classList.contains('tb-dropdown')) {
+      button.setAttribute('aria-haspopup', 'true'); button.setAttribute('aria-expanded', 'false');
+    }
+  });
+  const toolTip = document.createElement('div'); toolTip.id = 'toolbar-tooltip'; toolTip.setAttribute('role', 'tooltip'); toolTip.hidden = true; document.body.appendChild(toolTip);
+  function hideToolTip() { toolTip.hidden = true; toolbar.querySelectorAll('[aria-describedby="toolbar-tooltip"]').forEach(b => b.removeAttribute('aria-describedby')); }
+  function showToolTip(button) {
+    if (!button || !button.classList.contains('tb-tool')) return;
+    hideToolTip();
+    toolTip.textContent = button.dataset.tooltip;
+    button.setAttribute('aria-describedby', 'toolbar-tooltip'); toolTip.hidden = false;
+    const rect = button.getBoundingClientRect();
+    toolTip.style.left = Math.min(rect.right + 16, window.innerWidth - toolTip.offsetWidth - 8) + 'px';
+    toolTip.style.top = Math.max(8, Math.min(rect.top + (rect.height - toolTip.offsetHeight) / 2, window.innerHeight - toolTip.offsetHeight - 8)) + 'px';
+  }
+  toolbar.addEventListener('pointerover', e => showToolTip(e.target.closest('.tb-tool')));
+  toolbar.addEventListener('pointerout', e => { if (!e.relatedTarget || !e.target.closest('.tb-tool')?.contains(e.relatedTarget)) hideToolTip(); });
+  toolbar.addEventListener('focusin', e => showToolTip(e.target.closest('.tb-tool')));
+  toolbar.addEventListener('focusout', hideToolTip);
+  toolbar.addEventListener('pointerdown', hideToolTip);
+  toolbar.addEventListener('scroll', () => { hideToolTip(); toggleMenu('', true); });
+  window.addEventListener('resize', () => { hideToolTip(); toggleMenu('', true); });
+  window.addEventListener('keydown', e => { if (e.key === 'Escape') hideToolTip(); }, true);
   const statusText = document.getElementById('status-text');
   const statusCount = document.getElementById('status-count');
   const toastEl = document.getElementById('toast');
@@ -55,7 +117,7 @@
   const svgNamespace = 'http://www.w3.org/2000/svg';
   const minimap = document.createElement('aside');
   minimap.id = 'minimap';
-  minimap.setAttribute('aria-label', '思维导图小地图');
+  minimap.setAttribute('aria-label', '知枝 · MindSprout 小地图');
   minimap.innerHTML = '<div class="minimap-header"><span>小地图</span><button type="button" id="minimap-fit" title="适应整个导图">适应</button><button type="button" id="minimap-toggle" title="收起小地图" aria-expanded="true">−</button></div>';
   const minimapSvg = document.createElementNS(svgNamespace, 'svg');
   minimapSvg.id = 'minimap-canvas';
@@ -181,7 +243,9 @@
     world.style.left = (pan.x / scale) + 'px';
     world.style.top = (pan.y / scale) + 'px';
     world.style.zoom = String(scale);
-    zoomLabel.textContent = Math.round(scale * 100) + '%';
+    zoomLabel.querySelector('.tool-label').textContent = Math.round(scale * 100) + '%';
+    zoomLabel.dataset.tooltip = '当前缩放 ' + Math.round(scale * 100) + '% · 点击恢复 100%';
+    zoomLabel.setAttribute('aria-label', zoomLabel.dataset.tooltip);
     updateMinimapViewport();
   }
   function screenRect(node) {
@@ -225,10 +289,23 @@
   }
 
   /* ---------------- 主题 ---------------- */
+  function canvasColor() {
+    const color = model?.data.canvasColor;
+    return typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color) ? color : theme.canvas;
+  }
+  function changeCanvasColor(color) {
+    if (!model || readOnly || (color !== null && !/^#[0-9a-f]{6}$/i.test(color))) return;
+    if ((model.data.canvasColor || null) === color) return;
+    if (editingId) commitEdit();
+    model.commit();
+    if (color === null) delete model.data.canvasColor;
+    else model.data.canvasColor = color;
+    render(); scheduleSave();
+  }
   function applyTheme() {
     const t = theme;
     const set = (k, v) => document.body.style.setProperty(k, v);
-    set('--canvas', t.canvas);
+    set('--canvas', canvasColor());
     set('--node-border', t.nodeBorder);
     set('--node-fill', t.nodeFill);
     set('--node-text', t.nodeText);
@@ -239,7 +316,7 @@
     set('--collapse-border', t.collapseBorder);
     set('--collapse-text', t.collapseText);
     set('--glow', t.selectedGlow);
-    canvasWrap.style.background = t.canvas;
+    canvasWrap.style.background = canvasColor();
   }
 
   /* ---------------- 选择 ---------------- */
@@ -264,19 +341,21 @@
       control.disabled = !node;
       control.value = value;
     }
+    document.getElementById('canvas-color').value = canvasColor();
     document.querySelectorAll('[data-color-target]').forEach(button => {
-      button.disabled = !node;
-      button.setAttribute('aria-pressed', String(!!node && button.dataset.color.toLowerCase() === document.getElementById(button.dataset.colorTarget).value.toLowerCase()));
+      button.disabled = button.dataset.colorTarget === 'canvas-color' ? readOnly : !node;
+      button.setAttribute('aria-pressed', String(!button.disabled && button.dataset.color.toLowerCase() === document.getElementById(button.dataset.colorTarget).value.toLowerCase()));
     });
   }
   function syncBulkToggle() {
     const button = document.getElementById('btn-toggle-all-nodes');
     if (!button || !model) return;
     const hasBranches = model.root.children.length > 0;
-    const collapseNext = hasBranches && bulkToggleUsed && !model.hasCollapsedBranches();
+    const collapseNext = hasBranches && !model.hasCollapsedBranches();
     button.disabled = !hasBranches;
-    button.textContent = collapseNext ? '节点一键收起' : '节点一键展开';
-    button.title = collapseNext ? '收起全部分支，仅显示中心主题' : '展开全部节点，包含折叠分支内部的节点';
+    button.querySelector('.tool-label').textContent = collapseNext ? '节点一键收起' : '节点一键展开';
+    button.dataset.tooltip = button.textContent;
+    button.classList.toggle('is-collapse', collapseNext);
     button.setAttribute('aria-label', button.textContent);
     button.dataset.nextState = collapseNext ? 'collapse' : 'expand';
   }
@@ -290,12 +369,13 @@
   /* ---------------- 渲染 ---------------- */
   function render() {
     if (!model) return;
+    applyTheme();
     // 保险性隐藏拖拽指示器，避免拖拽后残留
     if (indicator) indicator.style.display = 'none';
     textStyles = C.resolveTextStyles(model.root, theme);
     C.walkVisible(model.root, node => { node._textStyle = textStyles.get(node.id); });
     if (window.MindMapRich) window.MindMapRich.prepare(model.root, () => {
-      if (!editingId && model) render();
+      if (!editingId && model) { render(); if (!readOnly) scheduleSave(); }
     });
     layout = C.layoutTree(model.root, measure, layoutMode);
     branchColors = C.assignBranchColors(model.root, theme);
@@ -988,7 +1068,7 @@
   /* ---------------- 导出 ---------------- */
   function baseName() {
     const f = fileName.replace(/\.(mindmap|mindm|md|markdown)$/i, '');
-    return f || '思维导图';
+    return f || '知枝';
   }
   function exportMarkdown() {
     vscode.postMessage({
@@ -1007,7 +1087,7 @@
     });
   }
   function exportPng() {
-    if (window.MindMapRich && layout.visible.some(node => node.content?.type === 'mermaid')) {
+    if (window.MindMapRich && layout.visible.some(node => ['mermaid','image'].includes(node.content?.type))) {
       window.MindMapRich.prepareImages(layout.visible).then(sendPng).catch(err => toast('PNG 导出失败：' + err.message));
     } else sendPng();
   }
@@ -1056,7 +1136,7 @@
     canvas.height = H;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('图片尺寸超出可用内存，请导出 SVG');
-    ctx.fillStyle = theme.canvas;
+    ctx.fillStyle = canvasColor();
     ctx.fillRect(0, 0, W, H);
     ctx.translate(-minX * s, -minY * s);
     ctx.font = FONT;
@@ -1168,7 +1248,7 @@
     }
   }
   function setTheme(key) {
-    theme = C.THEMES[key] || C.THEMES.feishu;
+    theme = C.THEMES[key] || C.THEMES.lightMap;
     applyTheme();
     render();
   }
@@ -1179,6 +1259,14 @@
       const m = menus[i];
       if (m.id === menuId && !forceClose) m.classList.toggle('open');
       else m.classList.remove('open');
+      const trigger = m.parentElement.querySelector('.tb-tool');
+      trigger?.setAttribute('aria-expanded', String(m.classList.contains('open')));
+      if (m.classList.contains('open')) {
+        hideToolTip();
+        const rect = trigger.getBoundingClientRect();
+        m.style.left = Math.min(rect.right + 16, Math.max(8, window.innerWidth - m.offsetWidth - 8)) + 'px';
+        m.style.top = Math.max(8, Math.min(rect.top, window.innerHeight - m.offsetHeight - 32)) + 'px';
+      }
     }
   }
 
@@ -1187,17 +1275,18 @@
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && document.querySelector('.tb-menu.open')) {
-      toggleMenu('', true); e.preventDefault(); e.stopImmediatePropagation();
+      hideToolTip(); toggleMenu('', true); e.preventDefault(); e.stopImmediatePropagation();
     }
   }, true);
   canvasWrap.addEventListener('wheel', () => toggleMenu('', true));
 
-  function onToolbarClick(e) {
+  async function onToolbarClick(e) {
     const btn = e.target.closest('[data-action]');
     if (!btn || !model) return;
     if (editingId) commitEdit();
     const action = btn.dataset.action;
-    if (readOnly && ['add-child','import-markdown','style-reset','undo','redo'].includes(action)) return;
+    if (['export-svg','export-html','export-png'].includes(action) && layout.visible.some(n=>n.content?.type==='image')) await window.MindMapRich.prepareImages(layout.visible);
+    if (readOnly && ['add-child','import-markdown','style-reset','canvas-reset','undo','redo'].includes(action)) return;
     switch (action) {
       case 'import-markdown':
         vscode.postMessage({ type: 'import-markdown' });
@@ -1211,8 +1300,7 @@
         break;
       }
       case 'toggle-all-nodes': {
-        const collapse = bulkToggleUsed && !model.hasCollapsedBranches();
-        bulkToggleUsed = true;
+        const collapse = !model.hasCollapsedBranches();
         if (model.setAllCollapsed(collapse)) {
           if (collapse || !selectedId) selectedId = model.root.id;
           render();
@@ -1251,7 +1339,6 @@
       case 'layout-outline':
       case 'layout-org':
       case 'layout-up':
-      case 'layout-radial':
         layoutMode = action.slice('layout-'.length);
         render();
         centerView(true);
@@ -1266,6 +1353,7 @@
         if (!selectedId || !model.find(selectedId)) selectNode(model.root.id);
         toggleMenu('style-menu');
         break;
+      case 'canvas-reset': changeCanvasColor(null); break;
       case 'style-reset': changeNodeStyle({ lineColor: null, textColor: null, fontWeight: null }); break;
       case 'theme-toggle':
         toggleMenu('theme-menu');
@@ -1283,7 +1371,7 @@
         break;
       case 'export-svg': {
         const { box, minX, minY } = exportBounds();
-        vscode.postMessage({ type: 'export', format: 'svg', content: window.MindMapRich.exportSvg(world, { x: minX, y: minY, width: box.w, height: box.h }, theme.canvas), defaultName: baseName() });
+        vscode.postMessage({ type: 'export', format: 'svg', content: window.MindMapRich.exportSvg(world, { x: minX, y: minY, width: box.w, height: box.h }, canvasColor()), defaultName: baseName() });
         toggleMenu('export-menu', true);
         break;
       }
@@ -1298,7 +1386,8 @@
 
   /* ---------------- 消息 ---------------- */
   function initDoc(msg) {
-    fileName = msg.fileName || '思维导图.mindmap';
+    window.MindMapRich?.resetImages?.();
+    fileName = msg.fileName || '知枝.mindmap';
     readOnly = !!msg.readOnly;
     document.body.classList.toggle('readonly-preview', readOnly);
     clearTimeout(saveTimer);
@@ -1306,7 +1395,6 @@
     selectedId = null;
     isDirty = false;
     fittedOnce = false;
-    bulkToggleUsed = false;
     const data = typeof msg.markdown === 'string' && msg.markdown.trim() ? C.markdownImport(msg.markdown, fileName.replace(/\.(md|markdown)$/i,'')) : msg.data ? C.parse(JSON.stringify(msg.data)) : C.defaultData();
     if (readOnly && !data.root.text) data.root.text = fileName.replace(/\.(md|markdown)$/i,'');
     model = new C.MindMapModel(data);
@@ -1323,7 +1411,10 @@
 
   window.addEventListener('message', (event) => {
     const msg = event.data;
-    if (msg.type === 'init') {
+    if (msg.type === 'image-resolved') {
+      const request = imageRequests.get(msg.requestId);
+      if (request) { clearTimeout(request.timer); imageRequests.delete(msg.requestId); if (msg.error) request.reject(new Error(msg.error)); else request.resolve(msg.dataUri); }
+    } else if (msg.type === 'init') {
       try {
         initDoc(msg);
       } catch (err) {
@@ -1332,10 +1423,10 @@
     } else if (msg.type === 'markdown-imported') {
       try {
         const imported = C.markdownImport(msg.content, msg.name);
+        window.MindMapRich?.resetImages();
         if (editingId) commitEdit();
         model.commit();
         model.data = imported;
-        bulkToggleUsed = false;
         selectedId = imported.root.id;
         selectedRelationId = null;
         relationSource = null;
@@ -1540,7 +1631,6 @@
       outline: 'M10 5V45M10 15H35M10 30H35M35 30V42H60',
       org: 'M35 5V22M10 40V22H60V40M35 22V40',
       up: 'M35 45V28M10 10V28H60V10M35 28V10',
-      radial: 'M35 25L15 8M35 25L55 8M35 25L62 35M35 25L35 45M35 25L8 35',
     };
     item.textContent = '';
     item.title = label;
@@ -1563,6 +1653,7 @@
       button.dataset.color = color;
       button.title = color; button.setAttribute('aria-label', color);
       button.addEventListener('click', () => {
+        if (button.dataset.colorTarget === 'canvas-color') { changeCanvasColor(color); return; }
         const property = button.dataset.colorTarget === 'line-color' ? 'lineColor' : 'textColor';
         changeNodeStyle({ [property]: color });
       });
@@ -1578,8 +1669,15 @@
     });
   }
 
+  document.getElementById('canvas-color').addEventListener('input', e => {
+    const valid = /^#[0-9a-f]{6}$/i.test(e.target.value);
+    e.target.setAttribute('aria-invalid', String(!valid));
+    if (valid) changeCanvasColor(e.target.value);
+  });
+
   buildThemeMenu();
   applyTheme();
+  window.mindSproutReady = true;
   vscode.postMessage({ type: 'ready' });
 })();
 

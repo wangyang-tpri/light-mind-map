@@ -1,8 +1,8 @@
 {
-  "name": "light-map",
-  "displayName": "lightMap",
-  "description": "轻量级思维导图编辑器：布局、编辑、拖拽、折叠、撤销、线条、文字颜色修改、多种不同的导图形状、一键导入 Markdown。导出 Markdown / HTML / PNG，使用 .mindmap 文件格式。",
-  "version": "0.1.9",
+  "name": "MindSprout",
+  "displayName": "知枝 · MindSprout",
+  "description": "知枝 · MindSprout：轻量级思维导图编辑器，支持 Markdown 右侧实时预览、表格、代码、Mermaid、多种布局与关联线，导出 SVG / HTML / PNG。",
+  "version": "0.1.18",
   "publisher": "wangyang-tpri",
   "license": "MIT",
   "engines": {
@@ -13,32 +13,33 @@
     "Other"
   ],
   "activationEvents": [
-    "onCustomEditor:mindmap.editor",
-    "onCommand:mindmap.new",
-    "onCommand:mindmap.markdownPreview",
-    "onCommand:mindmap.newInFolder"
+    "onCustomEditor:mindsprout.editor",
+    "onCommand:mindsprout.new",
+    "onCommand:mindsprout.markdownPreview",
+    "onCommand:mindsprout.newInFolder"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "mindmap.new",
-        "title": "New LightMap"
+        "command": "mindsprout.new",
+        "title": "New MindSprout"
       },
       {
-        "command": "mindmap.markdownPreview",
-        "title": "lightMap",
-        "category": "Markdown"
+        "command": "mindsprout.markdownPreview",
+        "title": "MindSprout",
+        "category": "Markdown",
+        "icon": "$(preview)"
       },
       {
-        "command": "mindmap.newInFolder",
-        "title": "New LightMap"
+        "command": "mindsprout.newInFolder",
+        "title": "New MindSprout"
       }
     ],
     "customEditors": [
       {
-        "viewType": "mindmap.editor",
-        "displayName": "lightMap",
+        "viewType": "mindsprout.editor",
+        "displayName": "思维导图",
         "selector": [
           {
             "filenamePattern": "*.mindmap"
@@ -53,35 +54,42 @@
     "menus": {
       "explorer/context": [
         {
-          "command": "mindmap.newInFolder",
+          "command": "mindsprout.newInFolder",
           "when": "explorerResourceIsFolder",
           "group": "navigation@100"
         }
       ],
       "commandPalette": [
         {
-          "command": "mindmap.new"
+          "command": "mindsprout.new"
         },
         {
-          "command": "mindmap.newInFolder",
+          "command": "mindsprout.newInFolder",
           "when": "false"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "mindsprout.markdownPreview",
+          "when": "editorLangId == markdown || resourceExtname == .md || resourceExtname == .markdown",
+          "group": "navigation@1"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "mindmap.new",
+        "command": "mindsprout.new",
         "key": "ctrl+alt+m",
         "mac": "cmd+alt+m"
       }
     ],
     "configuration": {
-      "title": "lightMap",
+      "title": "知枝 · MindSprout",
       "properties": {
         "mindmap.defaultTheme": {
           "type": "string",
           "enum": [
-            "feishu",
+            "lightMap",
             "fresh",
             "night"
           ],
@@ -90,7 +98,7 @@
             "清新绿",
             "深色夜间"
           ],
-          "default": "feishu",
+          "default": "lightMap",
           "description": "新打开思维导图时使用的默认主题"
         }
       }
@@ -110,5 +118,10 @@
     "jsdom": "^29.1.1",
     "mermaid": "^12.2.0",
     "typescript": "^5.4.0"
+  },
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wangyang-tpri/light-mind-map.git"
   }
 }

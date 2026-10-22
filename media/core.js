@@ -34,7 +34,7 @@
     const now = new Date().toISOString();
     return {
       version: VERSION,
-      meta: { createdBy: 'light-mind-map', createdAt: now },
+      meta: { createdBy: 'MindSprout', createdAt: now },
       root: {
         id: genId(),
         text: '',
@@ -733,6 +733,18 @@
   }
 
   /* ---------------- 导出：Markdown ---------------- */
+  // Only extract image data; never execute Markdown HTML.
+  function imageInfo(source) {
+    const html = source.match(/<img\b[^>]*>/i);
+    if (html) {
+      const attr = name => { const m = html[0].match(new RegExp('\\b' + name + '\\s*=\\s*(?:"([^"\\n]*)"|\'([^\'\\n]*)\'|([^\\s>]+))', 'i')); return m ? (m[1] ?? m[2] ?? m[3]) : ''; };
+      const src = attr('src').replace(/&amp;/g, '&');
+      return src ? { src, alt: attr('alt'), width: Number(attr('width')) || undefined, height: Number(attr('height')) || undefined } : null;
+    }
+    const md = source.match(/!\[([^\]]*)\]\(\s*(?:<([^>]+)>|((?:[^()\s]|\([^()]*\))+))(?:\s+["'][^"']*["'])?\s*\)/);
+    return md ? { src: md[2] || md[3], alt: md[1] } : null;
+  }
+
   /** Headings form sections; indented lists become child topics. */
   function markdownImport(text, name) {
     if (typeof text !== 'string' || !text.trim()) throw new Error('Markdown 文件为空');
@@ -773,6 +785,19 @@
         continue;
       }
       if (marker) { flush(); fence = marker[1]; language = line.slice(line.indexOf(marker[1]) + marker[1].length).trim().split(/\s+/)[0].toLowerCase(); continue; }
+      if (/<img\b/i.test(line) || /!\[[^\]]*\]\(/.test(line)) {
+        let source = line;
+        while (/<img\b/i.test(source) && !/<img\b[^>]*>/i.test(source) && lineIndex + 1 < sourceLines.length) source += '\n' + sourceLines[++lineIndex];
+        const info = imageInfo(source);
+        if (info) {
+          flush();
+          const node = createNode(source.replace(/<\/?p\b[^>]*>/gi, '').trim());
+          node.content = { type: 'image', ...info };
+          (lists.length ? lists[lists.length - 1].node : section()).children.push(node);
+          first = false; continue;
+        }
+      }
+      if (/^\s*<\/?p(?:\s[^>]*)?>\s*$/i.test(line)) continue;
       if (line.includes('|') && lineIndex + 1 < sourceLines.length && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(sourceLines[lineIndex + 1])) {
         flush();
         const rows = [raw, sourceLines[++lineIndex]];
@@ -845,7 +870,7 @@
     lines.push('<!DOCTYPE html>');
     lines.push('<html lang="zh-CN"><head><meta charset="UTF-8"/>');
     lines.push('<meta name="viewport" content="width=device-width, initial-scale=1.0"/>');
-    lines.push('<title>思维导图</title>');
+    lines.push('<title>知枝 · MindSprout</title>');
     lines.push('<style>');
     lines.push(
       'html,body{margin:0;height:100%;overflow:hidden;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}'
@@ -913,7 +938,7 @@
 
   /* ---------------- 主题 ---------------- */
   const THEMES = {
-    feishu: {
+    lightMap: {
       name: '科技蓝',
       canvas: '#FFFFFF',
       rootFill: '#3370FF',
@@ -994,7 +1019,7 @@
     visibleOrder,
     walkVisible,
     markdownExport,
-    markdownImport,
+    markdownImport, imageInfo,
     htmlExport,
     THEMES,
   };
