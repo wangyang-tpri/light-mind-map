@@ -162,6 +162,19 @@ setTimeout(()=>{
   window.imageExport=true;
   for(const format of ['svg','html','png'])document.querySelector('[data-action="export-'+format+'"]').click();
 },14000);
+setTimeout(()=>{
+  const data=MindMapCore.defaultData();data.root.text='中心主题输入';
+  window.dispatchEvent(new MessageEvent('message',{data:{type:'init',data}}));
+  const results=[];
+  for(const key of ['lightMap','fresh','night']) {
+    document.querySelector('[data-theme="'+key+'"]').click();
+    document.querySelector('.mm-node').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+    const input=document.querySelector('.mm-editor');const style=getComputedStyle(input);
+    results.push({color:style.color,background:style.backgroundColor,caret:style.caretColor});
+    input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  }
+  document.body.dataset.editorcontrast=JSON.stringify(results);
+},14500);
 
 `;
 fs.writeFileSync(path.join(output, 'boot.js'), boot);
@@ -173,6 +186,7 @@ assert.strictEqual(result.status, 0, result.stderr);
 fs.writeFileSync(path.join(output, 'dom.html'), result.stdout);
 const read = key => result.stdout.match(new RegExp('data-' + key + '="([^"]*)"'))?.[1].replaceAll('&quot;', '"').replaceAll('&amp;', '&');
 assert.ok(!read('error'), read('error'));
+for(const editor of JSON.parse(read('editorcontrast'))) {assert.notStrictEqual(editor.color,editor.background);assert.strictEqual(editor.color,editor.caret);}
 assert.deepStrictEqual(JSON.parse(read('imagerender')), {count:2,loaded:true,width:128,unsafe:false,fallback:true});
 for(const key of ['imagesvg','imagehtml','imagepng'])assert.strictEqual(read(key),'true',key);
 assert.deepStrictEqual(JSON.parse(read('rail')), {vertical:true,canvas:true,icons:13,menu:true,tip:true});

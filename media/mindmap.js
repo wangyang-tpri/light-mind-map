@@ -309,6 +309,7 @@
     set('--node-border', t.nodeBorder);
     set('--node-fill', t.nodeFill);
     set('--node-text', t.nodeText);
+    set('--editor-text', t.nodeText);
     set('--sel', t.selectedBorder);
     set('--sel-bg', t.selectedBg || 'rgba(51,112,255,0.08)');
     set('--hover', t.hoverBorder);

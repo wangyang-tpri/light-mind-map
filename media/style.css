@@ -599,3 +599,6 @@ body.readonly-preview [data-action="add-child"], body.readonly-preview [data-act
 .mm-rich-image { text-align: center; }
 .mm-rich-image img { display: block; max-width: 520px; max-height: 520px; height: auto; object-fit: contain; margin: auto; border-radius: 4px; }
 .mm-image-status { max-width: 320px; padding: 12px; color: var(--status-text); overflow-wrap: anywhere; }
+
+/* 编辑配色独立于节点展示色，根节点白字不会继承到浅色输入框。 */
+.mm-editor { color: var(--editor-text, #1f2329); caret-color: var(--editor-text, #1f2329); }

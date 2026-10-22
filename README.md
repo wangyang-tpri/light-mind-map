@@ -8,6 +8,14 @@
 
 中文名 **知枝**，英文名 **MindSprout**。让零散想法生长为清晰的知识脉络。
 
+## 操作演示
+
+<video controls preload="metadata" width="100%" src="resources/%E6%93%8D%E4%BD%9C%E8%A7%86%E9%A2%91.mp4">
+  您的阅读器不支持内嵌视频，请使用下方链接打开。
+</video>
+
+[观看或下载操作视频](resources/%E6%93%8D%E4%BD%9C%E8%A7%86%E9%A2%91.mp4)
+
 ### 新建并编辑导图
 
 任选一种方式创建：
@@ -285,4 +293,9 @@ package.json                 # 扩展声明、设置、脚本和依赖
 - 普通文本节点不提供所见即所得的富文本编辑、节点图标或备注功能；表格、代码块与 Mermaid 使用专门的富内容节点。
 - Markdown 预览为只读，导入后的导图编辑与原始 Markdown 文件之间不提供双向同步。
 - PNG 受图像尺寸和内存限制；超大导图建议导出 SVG。
+
+## 项目地址
+- 仓库地址：[https://github.com/wangyang-tpri/light-mind-map](https://github.com/wangyang-tpri/light-mind-map)
+- issues 地址：[https://github.com/wangyang-tpri/light-mind-map/issues](https://github.com/wangyang-tpri/light-mind-map/issues)
+- 如果有问题或建议，请在 issues 中提交。觉得好用的话，欢迎给项目点个星并给出五星评价。
 

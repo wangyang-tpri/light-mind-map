@@ -2,7 +2,7 @@
   "name": "MindSprout",
   "displayName": "知枝 · MindSprout",
   "description": "知枝 · MindSprout：轻量级思维导图编辑器，支持 Markdown 右侧实时预览、表格、代码、Mermaid、多种布局与关联线，导出 SVG / HTML / PNG。",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "publisher": "wangyang-tpri",
   "license": "MIT",
   "engines": {
