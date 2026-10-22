@@ -13,6 +13,7 @@
 
   /* ---------------- 状态 ---------------- */
   let model = null;
+  let readOnly = false;
   let theme = C.THEMES.feishu;
   let selectedId = null;
   let editingId = null;
@@ -34,6 +35,7 @@
   let relationSource = null;
   let selectedRelationId = null;
   let relationDrag = null;
+  let bulkToggleUsed = false;
   let layoutMode = 'right'; // standard / right / left
 
   /* ---------------- DOM ---------------- */
@@ -198,6 +200,19 @@
     scale = ns;
     applyTransform();
   }
+  function centerView(resetScale) {
+    if (!model || !layout) return;
+    if (resetScale) scale = 1;
+    const rect = canvasWrap.getBoundingClientRect();
+    const root = model.root;
+    const right = ['right', 'compact', 'spacious', 'outline'].includes(layoutMode);
+    const anchorX = rect.width * (right ? .25 : layoutMode === 'left' ? .75 : .5);
+    const anchorY = layoutMode === 'org' ? Math.min(80, rect.height * .2) : layoutMode === 'up' ? rect.height - Math.min(80, rect.height * .2) : rect.height / 2;
+    pan.x = anchorX - (root._rx + root._w / 2) * scale;
+    pan.y = anchorY - (root._ry + root._h / 2) * scale;
+    applyTransform();
+  }
+
   function fitView() {
     if (!layout) return;
     const box = contentBox();
@@ -254,8 +269,20 @@
       button.setAttribute('aria-pressed', String(!!node && button.dataset.color.toLowerCase() === document.getElementById(button.dataset.colorTarget).value.toLowerCase()));
     });
   }
+  function syncBulkToggle() {
+    const button = document.getElementById('btn-toggle-all-nodes');
+    if (!button || !model) return;
+    const hasBranches = model.root.children.length > 0;
+    const collapseNext = hasBranches && bulkToggleUsed && !model.hasCollapsedBranches();
+    button.disabled = !hasBranches;
+    button.textContent = collapseNext ? '节点一键收起' : '节点一键展开';
+    button.title = collapseNext ? '收起全部分支，仅显示中心主题' : '展开全部节点，包含折叠分支内部的节点';
+    button.setAttribute('aria-label', button.textContent);
+    button.dataset.nextState = collapseNext ? 'collapse' : 'expand';
+  }
+
   function changeNodeStyle(changes) {
-    if (!selectedId || !model) return;
+    if (!selectedId || !model || readOnly) return;
     if (editingId) commitEdit();
     if (model.setNodeStyle(selectedId, changes)) { render(); scheduleSave(); }
   }
@@ -268,7 +295,7 @@
     textStyles = C.resolveTextStyles(model.root, theme);
     C.walkVisible(model.root, node => { node._textStyle = textStyles.get(node.id); });
     if (window.MindMapRich) window.MindMapRich.prepare(model.root, () => {
-      if (!editingId && model) { render(); fitView(); }
+      if (!editingId && model) render();
     });
     layout = C.layoutTree(model.root, measure, layoutMode);
     branchColors = C.assignBranchColors(model.root, theme);
@@ -288,8 +315,9 @@
     }
     drawEdges();
     selectNode(selectedId);
-    document.getElementById('btn-undo').disabled = !model.canUndo();
-    document.getElementById('btn-redo').disabled = !model.canRedo();
+    document.getElementById('btn-undo').disabled = readOnly || !model.canUndo();
+    document.getElementById('btn-redo').disabled = readOnly || !model.canRedo();
+    syncBulkToggle();
     document.querySelectorAll('#layout-menu [data-action]').forEach(item => {
       const active = item.dataset.action === 'layout-' + layoutMode;
       item.classList.toggle('active', active);
@@ -299,7 +327,7 @@
     updateStatus();
     if (!fittedOnce) {
       fittedOnce = true;
-      fitView();
+      centerView(true);
     }
   }
 
@@ -396,84 +424,10 @@
         d: 'M' + start.x + ',' + start.y + ' C' + p1.x + ',' + p1.y + ' ' + p2.x + ',' + p2.y + ' ' + end.x + ',' + end.y }];
     });
   }
-  function specialTreePaths() {
-    if (layoutMode === 'org' || layoutMode === 'up') return C.organizationEdges(model.root, layoutMode, branchColors);
-    return layout.visible.flatMap(node => node.collapsed ? [] : node.children.map(child => ({
-      d: 'M' + (node._rx + node._w / 2) + ',' + (node._ry + node._h / 2) + ' L' + (child._rx + child._w / 2) + ',' + (child._ry + child._h / 2),
-      color: branchColors.get(child.id), role: 'radial', from: node.id, to: child.id,
-    })));
-  }
+  function specialTreePaths() { return C.treeEdges(model.root, layoutMode, branchColors); }
 
   function drawEdges() {
-    let svg = '';
-    const GAP = 8;   // 连线端点与节点边框的间隙
-    const SEG = 22;  // 水平段长度（节点边缘到垂直骨干）
-    const R = 14;    // 圆角半径
-    for (let i = 0; i < layout.visible.length; i++) {
-      const node = layout.visible[i];
-      const children = node.collapsed ? [] : node.children;
-      if (!children.length) continue;
-      const color = branchColors.get(node.id);
-      // 按侧分组（左右侧的垂直骨干 x 不同）
-      const sides = { right: [], left: [] };
-      children.forEach((c) => {
-        const s = c._side === 'left' ? 'left' : 'right';
-        sides[s].push(c);
-      });
-      for (const side of ['right', 'left']) {
-        const sc = sides[side];
-        if (!sc.length) continue;
-        const dir = side === 'right' ? 1 : -1;
-        const px = dir === 1 ? node._rx + node._w : node._rx;
-        const py = node._ry + node._h / 2;
-        // 子节点中心 y 范围
-        let minCY = Infinity, maxCY = -Infinity;
-        sc.forEach((c) => {
-          const cy = c._ry + c._h / 2;
-          if (cy < minCY) minCY = cy;
-          if (cy > maxCY) maxCY = cy;
-        });
-        // 单子节点且同高：直接画水平直线
-        if (sc.length === 1 && Math.abs(py - (sc[0]._ry + sc[0]._h / 2)) < 4) {
-          const child = sc[0];
-          const cx = dir === 1 ? child._rx : child._rx + child._w;
-          svg +=
-            '<path d="M' + (px + dir * GAP) + ',' + py +
-            ' L' + (cx - dir * GAP) + ',' + py +
-            '" fill="none" stroke="' + branchColors.get(child.id) + '" stroke-width="2" stroke-linecap="round"/>';
-          continue;
-        }
-        const firstCX = dir === 1 ? sc[0]._rx : sc[0]._rx + sc[0]._w;
-        const dx = Math.abs(firstCX - px);
-        const seg = Math.min(SEG, Math.max(4, dx / 2 - GAP - 2));
-        const offsets = sc.map(c => Math.abs(c._ry + c._h / 2 - py)).filter(d => d > 1);
-        const r = Math.min(R, seg * 0.6, offsets.length ? Math.min(...offsets) / 2 : R);
-        const bx = px + dir * (GAP + seg); // 垂直骨干 x
-        const sx = px + dir * GAP;
-        // A straight T junction at the parent; round only the outer corners.
-        const top = Math.min(py, minCY + r);
-        const bottom = Math.max(py, maxCY - r);
-        const trunk = 'M' + sx + ',' + py + ' L' + bx + ',' + py +
-          ' M' + bx + ',' + top + ' L' + bx + ',' + bottom;
-        svg += '<path d="' + trunk + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round"/>';
-        sc.forEach((child) => {
-          const cy = child._ry + child._h / 2;
-          const cx = dir === 1 ? child._rx : child._rx + child._w;
-          const ex = cx - dir * GAP;
-          const corner = cy === minCY && cy < py ? 1 : (cy === maxCY && cy > py ? -1 : 0);
-          const vStart = cy + corner * r;
-          const cornerX = bx + dir * (corner ? r : 0);
-          svg +=
-            '<path d="M' + bx + ',' + vStart +
-            ' Q' + bx + ',' + cy + ' ' + cornerX + ',' + cy +
-            ' L' + ex + ',' + cy +
-            '" fill="none" stroke="' + branchColors.get(child.id) + '" stroke-width="2" stroke-linecap="round"/>';
-        });
-      }
-    }
-    if (['org', 'up', 'radial'].includes(layoutMode)) {
-      svg = specialTreePaths().map(path => '<path d="' + path.d + '" data-edge-role="' + path.role + '" fill="none" stroke="' + path.color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>').join('');
-    }
+    const svg = specialTreePaths().map(path => '<path d="' + path.d + '" data-edge-role="' + path.role + '" fill="none" stroke="' + path.color + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>').join('');
     edgesSvg.innerHTML = svg;
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     defs.innerHTML = '<marker id="relation-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="context-stroke" stroke-width="1.5"/></marker>';
@@ -526,6 +480,7 @@
 
   /* ---------------- 编辑 ---------------- */
   function startEdit(id) {
+    if (readOnly) return;
     const node = model.find(id);
     if (!node) return;
     if (editingId) commitEdit();
@@ -717,9 +672,10 @@
     }
     // 输入控件内的按键由控件自己处理，避免提交/换行事件冒泡触发全局快捷键
     const tag = e.target && e.target.tagName;
-    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+    if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT' || tag === 'BUTTON') return;
     if (!model || e.isComposing || editingId || !contextMenu.hidden) return; // 等待文档初始化及输入完成
     const mod = e.ctrlKey || e.metaKey;
+    if (readOnly && (['Tab','Enter','F2','Delete','Backspace'].includes(e.key) || (mod && ['z','y'].includes(e.key.toLowerCase())))) { e.preventDefault(); return; }
 
     if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
@@ -853,6 +809,7 @@
       return;
     }
     selectNode(id);
+    if (readOnly) return;
     dragState = {
       id: id,
       startX: e.clientX,
@@ -1014,12 +971,14 @@
 
   /* ---------------- 保存 ---------------- */
   function scheduleSave() {
+    if (readOnly) { statusText.textContent = 'Markdown 只读预览'; return; }
     isDirty = true;
     statusText.textContent = '保存中…';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 800);
   }
   function saveNow() {
+    if (readOnly) return;
     clearTimeout(saveTimer);
     if (!isDirty || !model) return;
     isDirty = false;
@@ -1028,7 +987,7 @@
 
   /* ---------------- 导出 ---------------- */
   function baseName() {
-    const f = fileName.replace(/\.mindmap$/i, '').replace(/\.mindm$/i, '');
+    const f = fileName.replace(/\.(mindmap|mindm|md|markdown)$/i, '');
     return f || '思维导图';
   }
   function exportMarkdown() {
@@ -1104,82 +1063,11 @@
     ctx.textBaseline = 'middle';
     ctx.lineCap = 'round';
 
-    // 连线（共享垂直骨干，避免多子节点时线条重合）
-    const GAP = 8 * s;
-    const SEG = 22 * s;
-    const R = 14 * s;
-    ctx.strokeStyle = theme.rootFill;
-    ctx.lineWidth = 2 * s;
-    ctx.lineCap = 'round';
-    for (let i = 0; i < layout.visible.length; i++) {
-      const node = layout.visible[i];
-      const children = node.collapsed ? [] : node.children;
-      ctx.strokeStyle = branchColors.get(node.id);
-      if (!children.length || ['org', 'up', 'radial'].includes(layoutMode)) continue;
-      const sides = { right: [], left: [] };
-      children.forEach((c) => {
-        const sd = c._side === 'left' ? 'left' : 'right';
-        sides[sd].push(c);
-      });
-      for (const side of ['right', 'left']) {
-        const sc = sides[side];
-        if (!sc.length) continue;
-        const dir = side === 'right' ? 1 : -1;
-        const px = (dir === 1 ? node._rx + node._w : node._rx) * s;
-        const py = (node._ry + node._h / 2) * s;
-        let minCY = Infinity, maxCY = -Infinity;
-        sc.forEach((c) => {
-          const cy = (c._ry + c._h / 2) * s;
-          if (cy < minCY) minCY = cy;
-          if (cy > maxCY) maxCY = cy;
-        });
-        // 单子节点同高：水平直线
-        if (sc.length === 1 && Math.abs(py - (sc[0]._ry + sc[0]._h / 2) * s) < 4 * s) {
-          const child = sc[0];
-          const cx = (dir === 1 ? child._rx : child._rx + child._w) * s;
-          ctx.beginPath();
-          ctx.strokeStyle = branchColors.get(child.id);
-          ctx.moveTo(px + dir * GAP, py);
-          ctx.lineTo(cx - dir * GAP, py);
-          ctx.stroke();
-          continue;
-        }
-        ctx.strokeStyle = branchColors.get(node.id);
-        const firstCX = (dir === 1 ? sc[0]._rx : sc[0]._rx + sc[0]._w) * s;
-        const dx = Math.abs(firstCX - px);
-        const seg = Math.min(SEG, Math.max(4 * s, dx / 2 - GAP - 2 * s));
-        const offsets = sc.map(c => Math.abs((c._ry + c._h / 2) * s - py)).filter(d => d > s);
-        const r = Math.min(R, seg * 0.6, offsets.length ? Math.min(...offsets) / 2 : R);
-        const bx = px + dir * (GAP + seg);
-        const sx = px + dir * GAP;
-        ctx.beginPath();
-        ctx.moveTo(sx, py);
-        ctx.lineTo(bx, py);
-        ctx.moveTo(bx, Math.min(py, minCY + r));
-        ctx.lineTo(bx, Math.max(py, maxCY - r));
-        ctx.stroke();
-        sc.forEach((child) => {
-          const cy = (child._ry + child._h / 2) * s;
-          const cx = (dir === 1 ? child._rx : child._rx + child._w) * s;
-          const ex = cx - dir * GAP;
-          const corner = cy === minCY && cy < py ? 1 : (cy === maxCY && cy > py ? -1 : 0);
-          ctx.beginPath();
-          ctx.strokeStyle = branchColors.get(child.id);
-          ctx.moveTo(bx, cy + corner * r);
-          ctx.quadraticCurveTo(bx, cy, bx + dir * (corner ? r : 0), cy);
-          ctx.lineTo(ex, cy);
-          ctx.stroke();
-        });
-      }
-    }
-
     ctx.save();
     ctx.scale(s, s);
-    ctx.strokeStyle = theme.rootFill;
     ctx.lineWidth = 2;
-    if (['org', 'up', 'radial'].includes(layoutMode)) {
-      specialTreePaths().forEach(path => { ctx.strokeStyle = path.color; ctx.stroke(new Path2D(path.d)); });
-    }
+    ctx.lineJoin = 'round';
+    specialTreePaths().forEach(path => { ctx.strokeStyle = path.color; ctx.stroke(new Path2D(path.d)); });
     ctx.setLineDash([6, 5]);
     relationPaths().forEach(link => { ctx.strokeStyle = link.color; ctx.stroke(new Path2D(link.d)); });
     ctx.setLineDash([]);
@@ -1309,6 +1197,7 @@
     if (!btn || !model) return;
     if (editingId) commitEdit();
     const action = btn.dataset.action;
+    if (readOnly && ['add-child','import-markdown','style-reset','undo','redo'].includes(action)) return;
     switch (action) {
       case 'import-markdown':
         vscode.postMessage({ type: 'import-markdown' });
@@ -1319,6 +1208,17 @@
         render();
         scheduleSave();
         if (n) startEdit(n.id);
+        break;
+      }
+      case 'toggle-all-nodes': {
+        const collapse = bulkToggleUsed && !model.hasCollapsedBranches();
+        bulkToggleUsed = true;
+        if (model.setAllCollapsed(collapse)) {
+          if (collapse || !selectedId) selectedId = model.root.id;
+          render();
+          centerView(false);
+          scheduleSave();
+        } else syncBulkToggle();
         break;
       }
       case 'undo':
@@ -1354,7 +1254,7 @@
       case 'layout-radial':
         layoutMode = action.slice('layout-'.length);
         render();
-        fitView();
+        centerView(true);
         toggleMenu('layout-menu', true);
         break;
       case 'zoom-reset': {
@@ -1399,19 +1299,23 @@
   /* ---------------- 消息 ---------------- */
   function initDoc(msg) {
     fileName = msg.fileName || '思维导图.mindmap';
+    readOnly = !!msg.readOnly;
+    document.body.classList.toggle('readonly-preview', readOnly);
     clearTimeout(saveTimer);
     editingId = null;
     selectedId = null;
     isDirty = false;
     fittedOnce = false;
-    const data = msg.data ? C.parse(JSON.stringify(msg.data)) : C.defaultData();
+    bulkToggleUsed = false;
+    const data = typeof msg.markdown === 'string' && msg.markdown.trim() ? C.markdownImport(msg.markdown, fileName.replace(/\.(md|markdown)$/i,'')) : msg.data ? C.parse(JSON.stringify(msg.data)) : C.defaultData();
+    if (readOnly && !data.root.text) data.root.text = fileName.replace(/\.(md|markdown)$/i,'');
     model = new C.MindMapModel(data);
     const measures = new Map([400, 600, 700].map(weight => [weight, C.createMeasure(weight + ' ' + FONT, 360)]));
     measure = (text, node) => node && node.content && node._richSize ? node._richSize : measures.get(textStyles.get(node?.id)?.fontWeight || 400)(text);
     if (msg.theme && C.THEMES[msg.theme]) theme = C.THEMES[msg.theme];
     applyTheme();
     render();
-    statusText.textContent = '就绪';
+    statusText.textContent = readOnly ? 'Markdown 只读预览' : '就绪';
     if (msg.parseError) {
       toast('文件解析失败，已打开空白画布：' + msg.parseError);
     }
@@ -1431,12 +1335,13 @@
         if (editingId) commitEdit();
         model.commit();
         model.data = imported;
+        bulkToggleUsed = false;
         selectedId = imported.root.id;
         selectedRelationId = null;
         relationSource = null;
         relationDrag = null;
         render();
-        fitView();
+        centerView(true);
         scheduleSave();
         toast('Markdown 已生成思维导图，可撤销恢复导入前内容');
       } catch (err) { toast('导入失败：' + err.message); }
@@ -1499,7 +1404,7 @@
   }
   nodesLayer.addEventListener('contextmenu', e => {
     const el = e.target.closest('.mm-node');
-    if (!el || !model) return;
+    if (!el || !model || readOnly) return;
     e.preventDefault();
     const id = el.dataset.id;
     if (editingId) commitEdit();

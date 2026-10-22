@@ -73,8 +73,44 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
   readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
   private readonly _panels = new Map<MindMapDocument, vscode.WebviewPanel>();
+  private readonly _markdownPreviews = new Map<string, vscode.WebviewPanel>();
 
   constructor(private readonly _context: vscode.ExtensionContext) {}
+
+  openMarkdownPreview(source: vscode.TextDocument, sourceColumn: vscode.ViewColumn = vscode.ViewColumn.One): void {
+    // 使用源编辑器右侧的明确分组，避免重复执行时相对当前预览继续分屏。
+    const previewColumn = Math.min(sourceColumn + 1, vscode.ViewColumn.Nine);
+    const key = source.uri.toString();
+    const existing = this._markdownPreviews.get(key);
+    if (existing) { existing.reveal(previewColumn, true); return; }
+    const name = path.basename(source.uri.fsPath) || 'Markdown';
+    const panel = vscode.window.createWebviewPanel('mindmap.markdownPreview', `${name} · 思维导图预览`, { viewColumn: previewColumn, preserveFocus: true }, {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
+    });
+    this._markdownPreviews.set(key, panel);
+    let ready = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const update = () => panel.webview.postMessage({
+      type: 'init', markdown: source.getText(), readOnly: true, fileName: name,
+      theme: vscode.workspace.getConfiguration('mindmap').get<string>('defaultTheme', 'feishu'),
+    });
+    const messages = panel.webview.onDidReceiveMessage((msg: ExportMessage) => {
+      if (msg.type === 'ready') { ready = true; void update(); }
+      else if (msg.type === 'export') void this._export({uri: source.uri}, msg);
+    });
+    const changes = vscode.workspace.onDidChangeTextDocument(event => {
+      if (!ready || event.document.uri.toString() !== key) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => { void update(); }, 200);
+    });
+    panel.onDidDispose(() => {
+      clearTimeout(timer); messages.dispose(); changes.dispose();
+      this._markdownPreviews.delete(key);
+    });
+    panel.webview.html = this._getHtml(panel.webview);
+  }
 
   async openCustomDocument(uri: vscode.Uri): Promise<MindMapDocument> {
     return MindMapDocument.create(uri);
@@ -174,7 +210,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     }
   }
 
-  private async _export(document: MindMapDocument, msg: ExportMessage): Promise<void> {
+  private async _export(document: {uri: vscode.Uri}, msg: ExportMessage): Promise<void> {
     const format = msg.format ?? 'markdown';
     const extMap: Record<string, string> = { markdown: 'md', html: 'html', png: 'png', svg: 'svg' };
     const ext = extMap[format] ?? 'md';
@@ -287,8 +323,9 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
 </head>
 <body>
   <div id="toolbar">
+  <button class="tb-btn primary" data-action="add-child" title="为选中节点添加子主题（Tab）">＋ 子主题</button>
     <button class="tb-btn" data-action="import-markdown" title="导入 Markdown 标题和列表，支持撤销">导入 Markdown</button>
-    <button class="tb-btn primary" data-action="add-child" title="为选中节点添加子主题（Tab）">＋ 子主题</button>
+    <button id="btn-toggle-all-nodes" class="tb-btn" data-action="toggle-all-nodes" title="展开全部节点" disabled>节点一键展开</button>
     <span class="tb-sep"></span>
     <button id="btn-undo" class="tb-btn" data-action="undo" title="撤销（Ctrl+Z）">撤销</button>
     <button id="btn-redo" class="tb-btn" data-action="redo" title="重做（Ctrl+Y）">重做</button>
@@ -331,7 +368,6 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     <div class="tb-dropdown">
       <button class="tb-btn" data-action="export-toggle">导出 ▾</button>
       <div class="tb-menu" id="export-menu">
-        <div class="tb-menu-item" data-action="export-markdown">导出为 Markdown</div>
         <div class="tb-menu-item" data-action="export-svg">导出为 SVG（无损放大）</div>
         <div class="tb-menu-item" data-action="export-html">导出为 HTML</div>
         <div class="tb-menu-item" data-action="export-png">导出为高清 PNG 图片</div>

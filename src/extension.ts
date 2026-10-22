@@ -69,6 +69,14 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: false,
     }),
+    vscode.commands.registerCommand('mindmap.markdownPreview', () => {
+      const source = vscode.window.activeTextEditor?.document;
+      if (!source || (source.languageId !== 'markdown' && !/\.(md|markdown)$/i.test(source.fileName))) {
+        void vscode.window.showInformationMessage('请先打开一个 Markdown 文件，再执行 Markdown: lightMap。');
+        return;
+      }
+      provider.openMarkdownPreview(source, vscode.window.activeTextEditor?.viewColumn);
+    }),
     vscode.commands.registerCommand('mindmap.new', () => createMindMapFile()),
     vscode.commands.registerCommand('mindmap.newInFolder', (uri?: vscode.Uri) => createMindMapFile(uri)),
     vscode.commands.registerCommand('mindmap.export', () => {

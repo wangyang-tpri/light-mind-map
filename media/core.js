@@ -270,6 +270,31 @@
       return true;
     }
 
+    hasCollapsedBranches() {
+      const pending = [this.root];
+      while (pending.length) {
+        const node = pending.pop();
+        if (node.children.length && node.collapsed) return true;
+        pending.push(...node.children);
+      }
+      return false;
+    }
+
+    /** Update hidden descendants too, as one undoable operation. */
+    setAllCollapsed(collapsed) {
+      const pending = [this.root];
+      const changes = [];
+      while (pending.length) {
+        const node = pending.pop();
+        if (node.children.length && node.collapsed !== !!collapsed) changes.push(node);
+        pending.push(...node.children);
+      }
+      if (!changes.length) return false;
+      this.commit();
+      changes.forEach(node => { node.collapsed = !!collapsed; });
+      return true;
+    }
+
     /**
      * 移动节点：把 nodeId 挂到 targetId 下。
      * where: 'child' 成为其子节点 | 'before' / 'after' 成为其同级。
@@ -395,35 +420,78 @@
     return { height: node._subtreeHeight };
   }
 
+  function middleAnchor(centers) {
+    const middle = Math.floor(centers.length / 2);
+    return centers.length % 2 ? centers[middle] : (centers[middle - 1] + centers[middle]) / 2;
+  }
+
   function placeNode(node, x, topY, side, sideOf, mode, settings) {
-    // topY 是「子树包围盒」的顶部；节点自身在子树中垂直居中。
-    // 这样兄弟节点的子树按 _subtreeHeight 连续分布，不会因孙子节点以节点为中心
-    // 上下分布而越界重叠。
-    const nodeY = topY + Math.max(0, node._subtreeHeight - node._h) / 2;
-    node._x = x;
-    node._y = nodeY;
-    node._side = side;
-    if (side !== 'root') sideOf.set(node.id, side);
-    const children = node.collapsed ? [] : node.children;
-    if (!children.length) return;
-
-    let total = 0;
-    for (let i = 0; i < children.length; i++) total += children[i]._subtreeHeight;
-    total += settings.V_GAP * (children.length - 1);
-    // 以节点自身的垂直中心为对称轴，上下分布子节点的子树
-    const centerY = nodeY + node._h / 2;
-    let yCursor = centerY - total / 2;
-
-    for (let i = 0; i < children.length; i++) {
-      const c = children[i];
-      let childSide;
-      if (mode === 'right') childSide = 'right';
-      else if (mode === 'left') childSide = 'left';
-      else childSide = side === 'root' ? (i % 2 === 0 ? 'right' : 'left') : side;
-      const cX = childSide === 'right' ? x + node._w + settings.H_GAP : x - c._w - settings.H_GAP;
-      placeNode(c, cX, yCursor, childSide, sideOf, mode, settings);
-      yCursor += c._subtreeHeight + settings.V_GAP;
-    }
+    // Pack actual horizontal contours, rather than treating each subtree as one
+    // full rectangle. A tall block in a distant column must not reserve empty
+    // space between unrelated nodes nearer the parent.
+    const shift = (work, dy) => {
+      work.nodes.forEach(item => { item._y += dy; });
+      work.boxes.forEach(box => { box.top += dy; box.bottom += dy; });
+    };
+    const overlapX = (a, b) => a.left < b.right - .01 && b.left < a.right - .01;
+    const build = (current, currentX, currentSide) => {
+      current._x = currentX;
+      current._y = -current._h / 2;
+      current._side = currentSide;
+      if (currentSide !== 'root') sideOf.set(current.id, currentSide);
+      const result = { nodes: [current], boxes: [{ left: currentX, right: currentX + current._w, top: current._y, bottom: current._y + current._h }] };
+      // Add/expand controls extend outside the text box and need their own lane.
+      result.boxes.push(currentSide === 'left'
+        ? {left:currentX-56,right:currentX,top:-12,bottom:12}
+        : {left:currentX+current._w,right:currentX+current._w+56,top:-12,bottom:12});
+      const children = current.collapsed ? [] : current.children;
+      const groups = { left: [], right: [] };
+      children.forEach((child, index) => {
+        const childSide = mode === 'right' ? 'right' : mode === 'left' ? 'left' : currentSide === 'root' ? (index % 2 ? 'left' : 'right') : currentSide;
+        groups[childSide].push(child);
+      });
+      for (const childSide of ['right', 'left']) {
+        const siblings = groups[childSide];
+        if (!siblings.length) continue;
+        const placed = [];
+        const occupied = [];
+        for (const child of siblings) {
+          const childX = childSide === 'right' ? currentX + current._w + settings.H_GAP : currentX - child._w - settings.H_GAP;
+          const work = build(child, childX, childSide);
+          let dy = 0;
+          for (const prior of occupied) {
+            for (const next of work.boxes) {
+              if (overlapX(prior, next)) dy = Math.max(dy, prior.bottom + settings.V_GAP - next.top);
+            }
+          }
+          shift(work, dy);
+          occupied.push(...work.boxes);
+          placed.push(work);
+        }
+        const center = middleAnchor(siblings.map(child => child._y + child._h / 2));
+        placed.forEach(work => {
+          shift(work, -center);
+          result.nodes.push(...work.nodes);
+          result.boxes.push(...work.boxes);
+        });
+        // Reserve the actual connection corridors too, so compaction never
+        // moves a node across another branch's connector.
+        const direction = childSide === 'right' ? 1 : -1;
+        const edge = currentX + (direction > 0 ? current._w : 0);
+        const childEdge = child => child._x + (direction > 0 ? 0 : child._w);
+        const distance = Math.min(...siblings.map(child => Math.abs(childEdge(child) - edge)));
+        const bus = edge + direction * (8 + Math.min(22, (distance - 16) / 2));
+        const ys = siblings.map(child => child._y + child._h / 2);
+        result.boxes.push({left: Math.min(edge, bus), right: Math.max(edge, bus), top: -10, bottom: 10});
+        result.boxes.push({left: bus - 2, right: bus + 2, top: Math.min(0, ...ys), bottom: Math.max(0, ...ys)});
+        siblings.forEach((child, index) => result.boxes.push({left: Math.min(bus, childEdge(child)), right: Math.max(bus, childEdge(child)), top: ys[index] - 10, bottom: ys[index] + 10}));
+      }
+      current._subtreeHeight = Math.max(...result.nodes.map(item => item._y + item._h)) - Math.min(...result.nodes.map(item => item._y));
+      return result;
+    };
+    const work = build(node, x, side);
+    const top = Math.min(...work.nodes.map(item => item._y));
+    shift(work, topY - top);
   }
 
   function computeBounds(root) {
@@ -462,12 +530,25 @@
     calcSubtree(root, measure, settings);
     const sideOf = new Map();
     if (mode === 'org' || mode === 'up') {
-      const widths = new Map();
+      const spans = new Map();
       const span = node => {
         const children = node.collapsed ? [] : node.children;
-        const width = Math.max(node._w, children.reduce((sum, child) => sum + span(child), 0) + Math.max(0, children.length - 1) * 28);
-        widths.set(node.id, width);
-        return width;
+        let cursor = 0;
+        const offsets = [];
+        const centers = [];
+        children.forEach(child => {
+          const metric = span(child);
+          offsets.push(cursor);
+          centers.push(cursor + metric.center);
+          cursor += metric.width + 28;
+        });
+        const total = children.length ? cursor - 28 : 0;
+        const center = children.length ? middleAnchor(centers) : node._w / 2;
+        const left = Math.min(0, center - node._w / 2);
+        const right = Math.max(total, center + node._w / 2 + 56);
+        const metric = { width: right - left, center: center - left, offsets: offsets.map(offset => offset - left) };
+        spans.set(node.id, metric);
+        return metric;
       };
       span(root);
       const heights = [];
@@ -480,13 +561,14 @@
       for (let depth = 1; depth < heights.length; depth++) rows[depth] = rows[depth - 1] + heights[depth - 1] + 72;
       const place = (node, x, depth, isRoot) => {
         const y = rows[depth];
-        node._x = x + (widths.get(node.id) - node._w) / 2;
+        const metric = spans.get(node.id);
+        node._x = x + metric.center - node._w / 2;
         node._y = mode === 'up' ? -y - node._h : y;
         node._side = isRoot ? 'root' : 'right';
         if (!isRoot) sideOf.set(node.id, 'right');
-        if (!node.collapsed) node.children.forEach(child => {
-          place(child, x, depth + 1, false);
-          x += widths.get(child.id) + 28;
+        const children = node.collapsed ? [] : node.children;
+        children.forEach((child, index) => {
+          place(child, x + metric.offsets[index], depth + 1, false);
         });
       };
       place(root, 0, 0, true);
@@ -536,42 +618,75 @@
     return { sideOf, bounds, visible };
   }
 
-  /** Shared horizontal bus for organization charts; endpoints stay outside nodes. */
-  function organizationEdges(root, mode, colors) {
+  /** One orthogonal geometry for the canvas, thumbnails, PNG and SVG. */
+  function treeEdges(root, mode, colors) {
     const result = [];
-    const direction = mode === 'up' ? -1 : 1;
-    const xOf = node => (node._rx ?? node._x) + node._w / 2;
-    const yOf = node => node._ry ?? node._y;
+    const px = node => node._rx ?? node._x;
+    const py = node => node._ry ?? node._y;
     walkVisible(root, parent => {
       const children = parent.collapsed ? [] : parent.children;
       if (!children.length) return;
-      const x = xOf(parent);
-      const y = yOf(parent) + (direction > 0 ? parent._h + 6 : -6);
-      const entries = children.map(child => ({ child, x: xOf(child), y: yOf(child) + (direction > 0 ? -6 : child._h + 6) }));
-      const nearest = direction > 0 ? Math.min(...entries.map(item => item.y)) : Math.max(...entries.map(item => item.y));
-      const bus = (y + nearest) / 2;
-      const color = colors.get(parent.id);
-      if (entries.length === 1 && Math.abs(x - entries[0].x) < .01) {
-        result.push({ d: 'M' + x + ',' + y + ' L' + x + ',' + entries[0].y, color: colors.get(entries[0].child.id), role: 'stem', from: parent.id, to: entries[0].child.id });
+      if (mode === 'radial') {
+        const ax = px(parent) + parent._w / 2, ay = py(parent) + parent._h / 2;
+        children.forEach(child => {
+          const bx = px(child) + child._w / 2, by = py(child) + child._h / 2;
+          const dx = bx - ax, dy = by - ay;
+          const edge = node => Math.min(dx ? node._w / 2 / Math.abs(dx) : Infinity, dy ? node._h / 2 / Math.abs(dy) : Infinity);
+          const t1 = edge(parent), t2 = edge(child);
+          result.push({d:'M' + (ax + dx * t1) + ',' + (ay + dy * t1) + ' L' + (bx - dx * t2) + ',' + (by - dy * t2),color:colors.get(child.id),role:'radial',from:parent.id,to:child.id});
+        });
         return;
       }
-      const xs = entries.map(item => item.x);
-      const left = Math.min(x, ...xs), right = Math.max(x, ...xs);
-      const radiusAt = item => Math.min(10, Math.abs(item.x - x) / 2, Math.abs(item.y - bus) / 2, Math.abs(y - bus) / 2);
-      const leftItem = entries.find(item => item.x === left && item.x < x);
-      const rightItem = entries.find(item => item.x === right && item.x > x);
-      result.push({ d: 'M' + x + ',' + y + ' L' + x + ',' + bus, color, role: 'trunk', from: parent.id });
-      result.push({ d: 'M' + (left + (leftItem ? radiusAt(leftItem) : 0)) + ',' + bus + ' L' + (right - (rightItem ? radiusAt(rightItem) : 0)) + ',' + bus, color, role: 'bus', from: parent.id });
-      entries.forEach(item => {
-        const turn = item === leftItem ? 1 : item === rightItem ? -1 : 0;
-        const r = turn ? radiusAt(item) : 0;
-        const start = item.x + turn * r;
-        const d = turn ? 'M' + start + ',' + bus + ' Q' + item.x + ',' + bus + ' ' + item.x + ',' + (bus + direction * r) + ' L' + item.x + ',' + item.y : 'M' + item.x + ',' + bus + ' L' + item.x + ',' + item.y;
-        result.push({ d, color: colors.get(item.child.id), role: 'branch', from: parent.id, to: item.child.id });
+      const vertical = mode === 'org' || mode === 'up';
+      const groups = vertical ? [[mode === 'up' ? -1 : 1, children]] : [
+        [1, children.filter(child => child._side !== 'left')],
+        [-1, children.filter(child => child._side === 'left')],
+      ];
+      groups.forEach(([direction, group]) => {
+        if (!group.length) return;
+        // u points outwards from the parent; v runs along the shared bus.
+        const map = (u, v) => vertical ? [v, direction * u] : [direction * u, v];
+        const command = (type, u, v) => type + map(u, v).join(',');
+        const curve = (u, v, endU, endV) => ' Q' + map(u, v).join(',') + ' ' + map(endU, endV).join(',');
+        const gap = vertical ? 6 : 8;
+        const startU = direction * (vertical ? py(parent) + (direction > 0 ? parent._h : 0) : px(parent) + (direction > 0 ? parent._w : 0)) + gap;
+        const parentV = vertical ? px(parent) + parent._w / 2 : py(parent) + parent._h / 2;
+        const entries = group.map(child => ({child,
+          u: direction * (vertical ? py(child) + (direction > 0 ? 0 : child._h) : px(child) + (direction > 0 ? 0 : child._w)) - gap,
+          v: vertical ? px(child) + child._w / 2 : py(child) + child._h / 2,
+        }));
+        const add = (d, role, child) => result.push({d,color:colors.get(child ? child.id : parent.id),role,from:parent.id,...(child ? {to:child.id} : {})});
+        if (entries.length === 1 && Math.abs(entries[0].v - parentV) < .01) {
+          add(command('M', startU, parentV) + command(' L', entries[0].u, parentV), 'stem', entries[0].child);
+          return;
+        }
+        const nearest = Math.min(...entries.map(entry => entry.u));
+        const busU = vertical ? (startU + nearest) / 2 : startU + Math.min(22, (nearest - startU) / 2);
+        const values = [parentV, ...entries.map(entry => entry.v)];
+        const low = Math.min(...values), high = Math.max(...values);
+        const radius = v => Math.max(0, Math.min(10, busU - startU, nearest - busU,
+          ...values.filter(other => Math.abs(other - v) > .01).map(other => Math.abs(other - v) / 2)));
+        const parentTurn = entries.some(entry => Math.abs(entry.v - parentV) < .01) ? 0 : parentV === low ? 1 : parentV === high ? -1 : 0;
+        const parentRadius = parentTurn ? radius(parentV) : 0;
+        const first = entries.find(entry => entry.v === low && entry.v < parentV);
+        const last = entries.find(entry => entry.v === high && entry.v > parentV);
+        // A true T junction stays straight. A two-way elbow rounds both ends.
+        add(parentTurn ? command('M', startU, parentV) + command(' L', busU - parentRadius, parentV) + curve(busU, parentV, busU, parentV + parentTurn * parentRadius) : command('M', startU, parentV) + command(' L', busU, parentV), 'trunk');
+        const lowTrim = parentTurn === 1 ? parentRadius : first ? radius(first.v) : 0;
+        const highTrim = parentTurn === -1 ? parentRadius : last ? radius(last.v) : 0;
+        add(command('M', busU, low + lowTrim) + command(' L', busU, high - highTrim), 'bus');
+        entries.forEach(entry => {
+          const turn = entry === first ? 1 : entry === last ? -1 : 0;
+          const r = turn ? radius(entry.v) : 0;
+          const d = turn ? command('M', busU, entry.v + turn * r) + curve(busU, entry.v, busU + r, entry.v) + command(' L', entry.u, entry.v) : command('M', busU, entry.v) + command(' L', entry.u, entry.v);
+          add(d, 'branch', entry.child);
+        });
       });
     });
     return result;
   }
+
+  function organizationEdges(root, mode, colors) { return treeEdges(root, mode, colors); }
 
   function minimapProjection(bounds, width, height) {
     const scale = Math.min(width / Math.max(bounds.width, 1), height / Math.max(bounds.height, 1));
@@ -799,7 +914,7 @@
   /* ---------------- 主题 ---------------- */
   const THEMES = {
     feishu: {
-      name: '飞书彩色',
+      name: '科技蓝',
       canvas: '#FFFFFF',
       rootFill: '#3370FF',
       rootText: '#FFFFFF',
@@ -856,6 +971,7 @@
     VERSION,
     pngExportSize,
     organizationEdges,
+    treeEdges,
     minimapProjection,
     FILE_EXTENSIONS,
     genId,
