@@ -10,11 +10,7 @@
 
 ## 操作演示
 
-<video controls preload="metadata" width="100%" src="resources/%E6%93%8D%E4%BD%9C%E8%A7%86%E9%A2%91.mp4">
-  您的阅读器不支持内嵌视频，请使用下方链接打开。
-</video>
-
-[观看或下载操作视频](resources/%E6%93%8D%E4%BD%9C%E8%A7%86%E9%A2%91.mp4)
+[在 B 站观看操作演示](https://www.bilibili.com/video/BV1pEns6fErW/)
 
 ### 新建并编辑导图
 
