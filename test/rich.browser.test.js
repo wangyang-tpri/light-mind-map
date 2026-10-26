@@ -154,7 +154,7 @@ setTimeout(() => {
 
 }, 12000);
 setTimeout(()=>{
-  window.dispatchEvent(new MessageEvent('message',{data:{type:'init',markdown:'# 图片预览\\n<p align="center">\\n<img src="resources/icon.png" alt="知枝图标" width="128" height="128" onerror="alert(1)" />\\n</p>\\n\\n![同一图标](resources/icon.png)\\n\\n![丢失图片](missing.png)',readOnly:true,fileName:'README.md'}}));
+  window.dispatchEvent(new MessageEvent('message',{data:{type:'init',markdown:'# 图片预览\\n<p align="center">\\n<img src="resources/icon.png" alt="思络图标" width="128" height="128" onerror="alert(1)" />\\n</p>\\n\\n![同一图标](resources/icon.png)\\n\\n![丢失图片](missing.png)',readOnly:true,fileName:'README.md'}}));
 },13000);
 setTimeout(()=>{
   const images=[...document.querySelectorAll('.mm-rich-image img')];

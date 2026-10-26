@@ -87,7 +87,7 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
     const existing = this._markdownPreviews.get(key);
     if (existing) { existing.reveal(previewColumn, true); existing.webview.html = this._getHtml(existing.webview); return; }
     const name = path.basename(source.uri.fsPath) || 'Markdown';
-    const panel = vscode.window.createWebviewPanel('mindsprout.markdownPreview', `${name} · 知枝预览`, { viewColumn: previewColumn, preserveFocus: true }, {
+    const panel = vscode.window.createWebviewPanel('mindsprout.markdownPreview', `${name} · 思络预览`, { viewColumn: previewColumn, preserveFocus: true }, {
       enableScripts: true,
       retainContextWhenHidden: true,
       localResourceRoots: [vscode.Uri.joinPath(this._context.extensionUri, 'media')],
@@ -357,11 +357,11 @@ export class MindMapEditorProvider implements vscode.CustomEditorProvider<MindMa
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none'; style-src ${csp} 'unsafe-inline'; script-src ${csp}; img-src ${csp} data:; font-src ${csp};" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>知枝 · MindSprout</title>
+  <title>思络 · ThoughtWeave</title>
   <link rel="stylesheet" href="${cssUri}" />
 </head>
 <body>
-  <div id="toolbar" role="toolbar" aria-label="知枝工具栏" aria-orientation="vertical">
+  <div id="toolbar" role="toolbar" aria-label="思络工具栏" aria-orientation="vertical">
   <button class="tb-btn primary tb-tool" data-action="add-child" title="为选中节点添加子主题（Tab）" aria-label="＋ 子主题"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 13v8m-4-4h8" /></svg><span class="tool-label">＋ 子主题</span></button>
     <button class="tb-btn tb-tool" data-action="import-markdown" title="导入 Markdown 标题和列表，支持撤销" aria-label="导入 Markdown"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H5v18h14V8zM14 3v5h5M8 13l4 4 4-4m-4-3v7" /></svg><span class="tool-label">导入 Markdown</span></button>
     <button id="btn-toggle-all-nodes" class="tb-btn tb-tool" data-action="toggle-all-nodes" title="展开全部节点" disabled aria-label="节点一键展开"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 14h6v6h-6zM14 4h6v6h-6zM4 14h6v6H4z" /></svg><span class="tool-label">节点一键展开</span></button>

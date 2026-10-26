@@ -1,8 +1,8 @@
 {
-  "name": "MindSprout",
-  "displayName": "知枝 · MindSprout",
-  "description": "知枝 · MindSprout：轻量级思维导图编辑器，支持 Markdown 右侧实时预览、表格、代码、Mermaid、多种布局与关联线，导出 SVG / HTML / PNG。",
-  "version": "0.1.19",
+  "name": "MindSprout2",
+  "displayName": "思络 · ThoughtWeave",
+  "description": "思络 · ThoughtWeave：轻量级思维导图编辑器，支持 Markdown 右侧实时预览、表格、代码、Mermaid、多种布局与关联线，导出 SVG / HTML / PNG。",
+  "version": "0.2.0",
   "publisher": "wang-yang",
   "author": {
     "name": "wangyang",
@@ -28,17 +28,17 @@
     "commands": [
       {
         "command": "mindsprout.new",
-        "title": "New MindSprout"
+        "title": "New ThoughtWeave"
       },
       {
         "command": "mindsprout.markdownPreview",
-        "title": "MindSprout",
+        "title": "ThoughtWeave",
         "category": "Markdown",
         "icon": "$(preview)"
       },
       {
         "command": "mindsprout.newInFolder",
-        "title": "New MindSprout"
+        "title": "New ThoughtWeave"
       }
     ],
     "customEditors": [
@@ -89,7 +89,7 @@
       }
     ],
     "configuration": {
-      "title": "知枝 · MindSprout",
+      "title": "思络 · ThoughtWeave",
       "properties": {
         "mindmap.defaultTheme": {
           "type": "string",

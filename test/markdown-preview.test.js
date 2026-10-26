@@ -82,12 +82,12 @@ Module._load = originalLoad;
   const manifest = require('../package.json');
   assert.ok(manifest.contributes.menus['editor/title'].some(item=>item.command==='mindsprout.markdownPreview'&&item.group==='navigation@1'&&item.when.includes('markdown')));
   assert.ok(manifest.contributes.commands.find(item=>item.command==='mindsprout.markdownPreview').icon);
-  assert.strictEqual(manifest.displayName, '知枝 · MindSprout');
-  assert.strictEqual(manifest.contributes.configuration.title, '知枝 · MindSprout');
-  assert.strictEqual(manifest.contributes.commands.find(c => c.command === 'mindsprout.markdownPreview').title, 'MindSprout');
+  assert.strictEqual(manifest.displayName, '思络 · ThoughtWeave');
+  assert.strictEqual(manifest.contributes.configuration.title, '思络 · ThoughtWeave');
+  assert.strictEqual(manifest.contributes.commands.find(c => c.command === 'mindsprout.markdownPreview').title, 'ThoughtWeave');
   for (const id of ['mindsprout.new', 'mindsprout.newInFolder']) {
     assert.ok(commands.has(id));
-    assert.strictEqual(manifest.contributes.commands.find(c => c.command === id).title, 'New MindSprout');
+    assert.strictEqual(manifest.contributes.commands.find(c => c.command === id).title, 'New ThoughtWeave');
   }
   assert.ok(manifest.contributes.menus['explorer/context'].some(m => m.command === 'mindsprout.newInFolder' && m.when === 'explorerResourceIsFolder'));
   text = '# 修改后的内容';

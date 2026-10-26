@@ -34,7 +34,7 @@
     const now = new Date().toISOString();
     return {
       version: VERSION,
-      meta: { createdBy: 'MindSprout', createdAt: now },
+      meta: { createdBy: 'ThoughtWeave', createdAt: now },
       root: {
         id: genId(),
         text: '',
@@ -870,7 +870,7 @@
     lines.push('<!DOCTYPE html>');
     lines.push('<html lang="zh-CN"><head><meta charset="UTF-8"/>');
     lines.push('<meta name="viewport" content="width=device-width, initial-scale=1.0"/>');
-    lines.push('<title>知枝 · MindSprout</title>');
+    lines.push('<title>思络 · ThoughtWeave</title>');
     lines.push('<style>');
     lines.push(
       'html,body{margin:0;height:100%;overflow:hidden;font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;background:#fff}'

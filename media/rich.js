@@ -148,7 +148,7 @@
       try { return Array.from(sheet.cssRules, rule => rule.cssText); } catch (_) { return []; }
     }).join('\n');
     const navigation = '(function(){const w=document.getElementById("world");let x=40,y=40,z=1,drag=null;const draw=()=>{w.style.zoom=z;w.style.left=x/z+"px";w.style.top=y/z+"px";};document.addEventListener("wheel",e=>{e.preventDefault();const next=Math.max(.2,Math.min(3,z*(e.deltaY<0?1.1:1/1.1)));x=e.clientX-(e.clientX-x)*next/z;y=e.clientY-(e.clientY-y)*next/z;z=next;draw();},{passive:false});document.addEventListener("pointerdown",e=>{if(e.button===0)drag={x:e.clientX,y:e.clientY,px:x,py:y};});document.addEventListener("pointermove",e=>{if(drag){x=drag.px+e.clientX-drag.x;y=drag.py+e.clientY-drag.y;draw();}});document.addEventListener("pointerup",()=>drag=null);document.addEventListener("pointercancel",()=>drag=null);draw();})();';
-    return '<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><title>知枝 · MindSprout</title><style>' + css + '\nhtml,body{overflow:hidden;min-height:100%;}#world{position:absolute;margin:0;}#edges{pointer-events:none;}</style><body style="' + document.body.style.cssText + '">' + clone.outerHTML + '<script>' + navigation + '</script></body></html>';
+    return '<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><title>思络 · ThoughtWeave</title><style>' + css + '\nhtml,body{overflow:hidden;min-height:100%;}#world{position:absolute;margin:0;}#edges{pointer-events:none;}</style><body style="' + document.body.style.cssText + '">' + clone.outerHTML + '<script>' + navigation + '</script></body></html>';
   }
   function prepareImages(nodes) { return Promise.all(nodes.map(node => cache.get(keyOf(node))?.ready)); }
   function draw(ctx, node, x, y, scale) {

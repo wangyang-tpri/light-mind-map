@@ -525,10 +525,10 @@ ok('展开表格后不会占据相邻节点外侧按钮区域', () => {
 
 
 ok('Markdown 图片语法和多行 HTML 图片保留路径、替代文本与尺寸，代码块不解析图片', () => {
-  const source='# 图片\n<p align="center">\n<img src="resources/icon.png" alt="知枝"\n width="128" height="128" onerror="alert(1)" />\n</p>\n\n![示例](<images/my icon.png>)\n\n~~~html\n<img src="code.png">\n~~~';
+  const source='# 图片\n<p align="center">\n<img src="resources/icon.png" alt="思络"\n width="128" height="128" onerror="alert(1)" />\n</p>\n\n![示例](<images/my icon.png>)\n\n~~~html\n<img src="code.png">\n~~~';
   const data=C.markdownImport(source);const images=[];C.walkVisible(data.root,n=>{if(n.content?.type==='image')images.push(n);});
   assert.strictEqual(images.length,2);assert.strictEqual(images[0].content.src,'resources/icon.png');
-  assert.strictEqual(images[0].content.width,128);assert.strictEqual(images[0].content.alt,'知枝');
+  assert.strictEqual(images[0].content.width,128);assert.strictEqual(images[0].content.alt,'思络');
   assert.strictEqual(images[0].content.onerror,undefined);assert.strictEqual(images[1].content.src,'images/my icon.png');
   assert.strictEqual(data.root.children.at(-1).content.type,'code');
   assert.strictEqual(C.imageInfo('![x](https://example.com/a(b).png)').src,'https://example.com/a(b).png');

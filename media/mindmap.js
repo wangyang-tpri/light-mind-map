@@ -29,7 +29,7 @@
   let branchColors = new Map();
   let textStyles = new Map();
   let measure = null;
-  let fileName = '知枝.mindmap';
+  let fileName = '思络.mindmap';
   let scale = 1;
   let pan = { x: 0, y: 0 };
   let saveTimer = null;
@@ -54,7 +54,7 @@
   // SVG 工具栏：标签保留给辅助技术，悬停和键盘聚焦显示提示。
   const toolbar = document.getElementById('toolbar');
   toolbar.setAttribute('role', 'toolbar');
-  toolbar.setAttribute('aria-label', '知枝 · MindSprout 工具栏');
+  toolbar.setAttribute('aria-label', '思络 · ThoughtWeave 工具栏');
   toolbar.setAttribute('aria-orientation', 'vertical');
   const toolIcons = {
     'add-child': 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM17 13v8m-4-4h8',
@@ -117,7 +117,7 @@
   const svgNamespace = 'http://www.w3.org/2000/svg';
   const minimap = document.createElement('aside');
   minimap.id = 'minimap';
-  minimap.setAttribute('aria-label', '知枝 · MindSprout 小地图');
+  minimap.setAttribute('aria-label', '思络 · ThoughtWeave 小地图');
   minimap.innerHTML = '<div class="minimap-header"><span>小地图</span><button type="button" id="minimap-fit" title="适应整个导图">适应</button><button type="button" id="minimap-toggle" title="收起小地图" aria-expanded="true">−</button></div>';
   const minimapSvg = document.createElementNS(svgNamespace, 'svg');
   minimapSvg.id = 'minimap-canvas';
@@ -1069,7 +1069,7 @@
   /* ---------------- 导出 ---------------- */
   function baseName() {
     const f = fileName.replace(/\.(mindmap|mindm|md|markdown)$/i, '');
-    return f || '知枝';
+    return f || '思络';
   }
   function exportMarkdown() {
     vscode.postMessage({
@@ -1388,7 +1388,7 @@
   /* ---------------- 消息 ---------------- */
   function initDoc(msg) {
     window.MindMapRich?.resetImages?.();
-    fileName = msg.fileName || '知枝.mindmap';
+    fileName = msg.fileName || '思络.mindmap';
     readOnly = !!msg.readOnly;
     document.body.classList.toggle('readonly-preview', readOnly);
     clearTimeout(saveTimer);

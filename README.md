@@ -1,12 +1,12 @@
-# 知枝 · MindSprout
+# 思络 · ThoughtWeave
 
 <p align="center">
-  <img src="resources/icon.png" alt="知枝 · MindSprout 插件图标" width="128" height="128" />
+  <img src="resources/icon.png" alt="思络 · ThoughtWeave 插件图标" width="128" height="128" />
 </p>
 
-知枝 · MindSprout 是一个 VS Code 思维导图扩展，支持编辑 `.mindmap` / `.mindm` 文件，也可以将当前打开的 Markdown 文件在右侧实时预览为思维导图。支持多种布局、表格、代码块、Mermaid 图表、虚线关联，以及 SVG / HTML / PNG 导出。
+思络 · ThoughtWeave 是一个 VS Code 思维导图扩展，支持编辑 `.mindmap` / `.mindm` 文件，也可以将当前打开的 Markdown 文件在右侧实时预览为思维导图。支持多种布局、表格、代码块、Mermaid 图表、虚线关联，以及 SVG / HTML / PNG 导出。
 
-中文名 **知枝**，英文名 **MindSprout**。让零散想法生长为清晰的知识脉络。
+中文名 **思络**，英文名 **ThoughtWeave**。让零散想法生长为清晰的知识脉络。
 
 ## 操作演示
 
@@ -16,18 +16,18 @@
 
 任选一种方式创建：
 
-- 在资源管理器中右键**文件夹**，选择 **New MindSprout**，在该文件夹中创建导图。
-- 按 `Ctrl+Shift+P` 打开命令面板，执行 **New MindSprout**。
+- 在资源管理器中右键**文件夹**，选择 **New ThoughtWeave**，在该文件夹中创建导图。
+- 按 `Ctrl+Shift+P` 打开命令面板，执行 **New ThoughtWeave**。
 - 使用快捷键 `Ctrl+Alt+M`，macOS 为 `Cmd+Alt+M`。
 
-命令面板和快捷键默认在工作区第一个文件夹中创建；没有工作区文件夹时弹出保存对话框。新文件名为 `知枝.mindmap`，重名时自动添加数字。
+命令面板和快捷键默认在工作区第一个文件夹中创建；没有工作区文件夹时弹出保存对话框。新文件名为 `思络.mindmap`，重名时自动添加数字。
 
 打开 `.mindmap` / `.mindm` 文件即可进入编辑画布。新导图只有一个空的中心节点，双击节点输入内容，再使用 `Tab` 添加子节点。修改会在约 0.8 秒后自动保存，也可使用 `Ctrl+S` 主动保存。
 
 ### 在右侧预览 Markdown
 
 1. 打开需要预览的 `.md` / `.markdown` 文件，并让其编辑器获得焦点。
-2. 点击 Markdown 编辑器右上角的 **MindSprout 预览图标**；也可在命令面板执行 **Markdown: MindSprout**。
+2. 点击 Markdown 编辑器右上角的 **ThoughtWeave 预览图标**；也可在命令面板执行 **Markdown: ThoughtWeave**。
 3. 导图预览显示在同一个 VS Code 窗口内、源文件右侧的编辑器组，源文件保留焦点。
 
 预览读取当前编辑器中的内容，包括尚未保存的修改，并在原文变化后自动刷新。对同一文件再次执行命令，会复用已有预览。
@@ -63,11 +63,11 @@
 
 | 操作 | Windows / Linux | macOS |
 | --- | --- | --- |
-| 新建导图（New MindSprout） | `Ctrl+Alt+M` | `Cmd+Alt+M` |
+| 新建导图（New ThoughtWeave） | `Ctrl+Alt+M` | `Cmd+Alt+M` |
 | 打开命令面板 | `Ctrl+Shift+P` | `Cmd+Shift+P` |
-| Markdown 导图预览 | 在命令面板执行 **Markdown: MindSprout** | 同左 |
+| Markdown 导图预览 | 在命令面板执行 **Markdown: ThoughtWeave** | 同左 |
 
-Markdown 预览暂未绑定专用快捷键。可在 VS Code“键盘快捷方式”中搜索 `Markdown: MindSprout`，为命令 `mindsprout.markdownPreview` 自行绑定。
+Markdown 预览暂未绑定专用快捷键。可在 VS Code“键盘快捷方式”中搜索 `Markdown: ThoughtWeave`，为命令 `mindsprout.markdownPreview` 自行绑定。
 
 ### 节点操作
 
@@ -206,7 +206,7 @@ PNG 最高使用三倍采样，长边上限为 32760 像素，总像素约 6400 
 {
   "version": 1,
   "meta": {
-    "createdBy": "MindSprout",
+    "createdBy": "ThoughtWeave",
     "createdAt": "2026-10-22T00:00:00.000Z"
   },
   "root": {
@@ -229,9 +229,9 @@ PNG 最高使用三倍采样，长边上限为 32760 像素，总像素约 6400 
 
 ## 名称与兼容性
 
-扩展展示名称为 **知枝 · MindSprout**，新建命令为 **New MindSprout**，Markdown 预览命令为 **Markdown: MindSprout**。编辑器选择菜单使用“思维导图”区分编辑器名称与扩展名称。
+扩展展示名称为 **思络 · ThoughtWeave**，新建命令为 **New ThoughtWeave**，Markdown 预览命令为 **Markdown: ThoughtWeave**。编辑器选择菜单使用“思维导图”区分编辑器名称与扩展名称。
 
-扩展包名为 `MindSprout`，命令与编辑器标识使用独立的 `mindsprout.*`，避免与旧版 `light-map` 的入口冲突。默认主题设置仍使用 `mindmap.defaultTheme`，科技蓝配置值保留为 `lightMap`。已有 `.mindmap` / `.mindm` 文件可以直接打开，无需转换。
+展示品牌为 `ThoughtWeave`，扩展内部包名保持为 `MindSprout2`，命令与编辑器标识使用独立的 `mindsprout.*`，避免与旧版 `light-map` 的入口冲突。默认主题设置仍使用 `mindmap.defaultTheme`，科技蓝配置值保留为 `lightMap`。已有 `.mindmap` / `.mindm` 文件可以直接打开，无需转换。
 
 ## 开发与验证
 
@@ -278,11 +278,11 @@ package.json                 # 扩展声明、设置、脚本和依赖
 
 ## 预览启动与重试
 
-左侧图标直接随页面加载，不依赖脚本转换。若预览启动失败，底部会显示错误提示；从 Markdown 源文件再次点击右上角 MindSprout 按钮，可重新加载同一预览页。修改前端源码后需要执行 `npm run compile` 更新应用整包。
+左侧图标直接随页面加载，不依赖脚本转换。若预览启动失败，底部会显示错误提示；从 Markdown 源文件再次点击右上角 ThoughtWeave 按钮，可重新加载同一预览页。修改前端源码后需要执行 `npm run compile` 更新应用整包。
 
 ## 旧版升级排查
 
-如果安装新版后图片仍显示为 HTML 源码，请在扩展列表中检查是否同时安装了旧版 `wangyang-tpri.light-map`。新版使用独立的 MindSprout 入口；建议禁用旧版后重新加载 VS Code，并从 Markdown 编辑器右上角的预览按钮重新打开导图。
+如果安装新版后图片仍显示为 HTML 源码，请在扩展列表中检查是否同时安装了旧版 `wangyang-tpri.light-map`。新版使用独立的 ThoughtWeave 入口；建议禁用旧版后重新加载 VS Code，并从 Markdown 编辑器右上角的预览按钮重新打开导图。
 
 ## 当前限制
 

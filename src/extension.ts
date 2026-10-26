@@ -9,7 +9,7 @@ function defaultData(): Record<string, unknown> {
   const nid = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   return {
     version: 1,
-    meta: { createdBy: 'MindSprout', createdAt: now },
+    meta: { createdBy: 'ThoughtWeave', createdAt: now },
     root: {
       id: nid,
       text: '',
@@ -30,7 +30,7 @@ async function createMindMapFile(targetFolder?: vscode.Uri): Promise<void> {
     let index = 1;
     let candidate: vscode.Uri;
     for (;;) {
-      candidate = vscode.Uri.joinPath(folder, index === 1 ? '知枝.mindmap' : `知枝${index}.mindmap`);
+      candidate = vscode.Uri.joinPath(folder, index === 1 ? '思络.mindmap' : `思络${index}.mindmap`);
       try {
         await vscode.workspace.fs.stat(candidate);
         index += 1;
@@ -41,7 +41,7 @@ async function createMindMapFile(targetFolder?: vscode.Uri): Promise<void> {
     target = candidate;
   } else {
     target = await vscode.window.showSaveDialog({
-      defaultUri: vscode.Uri.file('知枝.mindmap'),
+      defaultUri: vscode.Uri.file('思络.mindmap'),
       filters: { '思维导图': ['mindmap'] },
       saveLabel: '创建',
     });
@@ -73,7 +73,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const editor = uri ? vscode.window.visibleTextEditors.find(item => item.document.uri.toString() === uri.toString()) ?? vscode.window.activeTextEditor : vscode.window.activeTextEditor;
       const source = editor?.document;
       if (!source || (source.languageId !== 'markdown' && !/\.(md|markdown)$/i.test(source.fileName))) {
-        void vscode.window.showInformationMessage('请先打开一个 Markdown 文件，再执行 Markdown: MindSprout。');
+        void vscode.window.showInformationMessage('请先打开一个 Markdown 文件，再执行 Markdown: ThoughtWeave。');
         return;
       }
       provider.openMarkdownPreview(source, editor?.viewColumn);
@@ -81,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('mindsprout.new', () => createMindMapFile()),
     vscode.commands.registerCommand('mindsprout.newInFolder', (uri?: vscode.Uri) => createMindMapFile(uri)),
     vscode.commands.registerCommand('mindsprout.export', () => {
-      vscode.window.showInformationMessage('请在知枝 · MindSprout 编辑器的左侧工具栏中使用导出菜单。');
+      vscode.window.showInformationMessage('请在思络 · ThoughtWeave 编辑器的左侧工具栏中使用导出菜单。');
     })
   );
 }
