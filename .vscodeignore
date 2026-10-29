@@ -6,3 +6,5 @@ node_modules/**
 *.png
 **/*.map
 .git/**
+
+out/**
