@@ -342,9 +342,9 @@
   /* ---------------- 布局算法 ---------------- */
   const LAYOUT = {
     H_GAP: 80, // 父节点与子节点水平间距（连线长度加倍）
-    V_GAP: 16, // 同级节点垂直间距
+    V_GAP: 10, // 同级节点垂直间距
     PAD_X: 3, // 节点水平内边距（与 CSS .mm-node padding 一致）
-    PAD_Y: 5, // 节点垂直内边距（节点高度=行高20+5*2=30px）
+    PAD_Y: 3, // 节点垂直内边距
     LINE_H: 20, // 行高
     MIN_W: 20, // 节点最小宽度
     MIN_H: 20, // 节点最小高度
@@ -395,8 +395,8 @@
         if (lw > w) w = lw;
       }
       return {
-        // +6px 余量：canvas measureText 与实际渲染有亚像素误差，避免文字被截断
-        width: Math.max(Math.ceil(w) + 6, LAYOUT.MIN_W),
+        // +2px 余量：canvas measureText 与实际渲染有亚像素误差，避免文字被截断
+        width: Math.max(Math.ceil(w) + 2, LAYOUT.MIN_W),
         height: Math.max(lines.length * LAYOUT.LINE_H, LAYOUT.MIN_H),
       };
     };
@@ -405,8 +405,8 @@
   /** 计算每个节点的尺寸与子树包围盒高度（结果写入 node._w/_h/_subtreeHeight）。 */
   function calcSubtree(node, measure, settings) {
     const size = measure(node.text || '输入文本', node);
-    node._w = Math.max(36, size.width + LAYOUT.PAD_X * 2 + 4);
-    node._h = size.height + LAYOUT.PAD_Y * 2 + 4;
+    node._w = Math.max(24, size.width + LAYOUT.PAD_X * 2 + 2);
+    node._h = size.height + LAYOUT.PAD_Y * 2 + 2;
     let total = 0;
     for (let i = 0; i < node.children.length; i++) {
       total += calcSubtree(node.children[i], measure, settings).height;
@@ -525,8 +525,8 @@
   function layoutTree(root, measure, mode) {
     if (!mode) mode = 'standard';
     const settings = Object.assign({}, LAYOUT,
-      mode === 'compact' ? { H_GAP: 64, V_GAP: 8 } :
-      mode === 'spacious' ? { H_GAP: 120, V_GAP: 32 } : {});
+      mode === 'compact' ? { H_GAP: 64, V_GAP: 6 } :
+      mode === 'spacious' ? { H_GAP: 120, V_GAP: 20 } : {});
     calcSubtree(root, measure, settings);
     const sideOf = new Map();
     if (mode === 'org' || mode === 'up') {
@@ -558,7 +558,7 @@
       };
       scan(root, 0);
       const rows = [0];
-      for (let depth = 1; depth < heights.length; depth++) rows[depth] = rows[depth - 1] + heights[depth - 1] + 72;
+      for (let depth = 1; depth < heights.length; depth++) rows[depth] = rows[depth - 1] + heights[depth - 1] + 44;
       const place = (node, x, depth, isRoot) => {
         const y = rows[depth];
         const metric = spans.get(node.id);

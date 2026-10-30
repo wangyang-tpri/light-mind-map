@@ -602,3 +602,11 @@ body.readonly-preview [data-action="add-child"], body.readonly-preview [data-act
 
 /* 编辑配色独立于节点展示色，根节点白字不会继承到浅色输入框。 */
 .mm-editor { color: var(--editor-text, #1f2329); caret-color: var(--editor-text, #1f2329); }
+
+/* 紧凑节点内容留白，与布局测量中的 PAD_X/PAD_Y 对齐。 */
+.mm-node, .mm-node.rich-node, .mm-editor { padding: 3px; }
+.mm-rich { min-width: 96px; }
+.mm-rich-image { min-width: 0; }
+.mm-rich th, .mm-rich td { padding: 5px 7px; }
+.mm-rich pre { padding: 6px 8px; }
+.mm-code-label { padding: 1px 6px 3px; }

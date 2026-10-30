@@ -342,9 +342,9 @@
   /* ---------------- 布局算法 ---------------- */
   const LAYOUT = {
     H_GAP: 80, // 父节点与子节点水平间距（连线长度加倍）
-    V_GAP: 16, // 同级节点垂直间距
+    V_GAP: 10, // 同级节点垂直间距
     PAD_X: 3, // 节点水平内边距（与 CSS .mm-node padding 一致）
-    PAD_Y: 5, // 节点垂直内边距（节点高度=行高20+5*2=30px）
+    PAD_Y: 3, // 节点垂直内边距
     LINE_H: 20, // 行高
     MIN_W: 20, // 节点最小宽度
     MIN_H: 20, // 节点最小高度
@@ -395,8 +395,8 @@
         if (lw > w) w = lw;
       }
       return {
-        // +6px 余量：canvas measureText 与实际渲染有亚像素误差，避免文字被截断
-        width: Math.max(Math.ceil(w) + 6, LAYOUT.MIN_W),
+        // +2px 余量：canvas measureText 与实际渲染有亚像素误差，避免文字被截断
+        width: Math.max(Math.ceil(w) + 2, LAYOUT.MIN_W),
         height: Math.max(lines.length * LAYOUT.LINE_H, LAYOUT.MIN_H),
       };
     };
@@ -405,8 +405,8 @@
   /** 计算每个节点的尺寸与子树包围盒高度（结果写入 node._w/_h/_subtreeHeight）。 */
   function calcSubtree(node, measure, settings) {
     const size = measure(node.text || '输入文本', node);
-    node._w = Math.max(36, size.width + LAYOUT.PAD_X * 2 + 4);
-    node._h = size.height + LAYOUT.PAD_Y * 2 + 4;
+    node._w = Math.max(24, size.width + LAYOUT.PAD_X * 2 + 2);
+    node._h = size.height + LAYOUT.PAD_Y * 2 + 2;
     let total = 0;
     for (let i = 0; i < node.children.length; i++) {
       total += calcSubtree(node.children[i], measure, settings).height;
@@ -525,8 +525,8 @@
   function layoutTree(root, measure, mode) {
     if (!mode) mode = 'standard';
     const settings = Object.assign({}, LAYOUT,
-      mode === 'compact' ? { H_GAP: 64, V_GAP: 8 } :
-      mode === 'spacious' ? { H_GAP: 120, V_GAP: 32 } : {});
+      mode === 'compact' ? { H_GAP: 64, V_GAP: 6 } :
+      mode === 'spacious' ? { H_GAP: 120, V_GAP: 20 } : {});
     calcSubtree(root, measure, settings);
     const sideOf = new Map();
     if (mode === 'org' || mode === 'up') {
@@ -558,7 +558,7 @@
       };
       scan(root, 0);
       const rows = [0];
-      for (let depth = 1; depth < heights.length; depth++) rows[depth] = rows[depth - 1] + heights[depth - 1] + 72;
+      for (let depth = 1; depth < heights.length; depth++) rows[depth] = rows[depth - 1] + heights[depth - 1] + 44;
       const place = (node, x, depth, isRoot) => {
         const y = rows[depth];
         const metric = spans.get(node.id);
@@ -1124,7 +1124,7 @@
         probe.classList.add('mm-rich-probe');
         document.body.appendChild(probe);
         const rect = probe.getBoundingClientRect();
-        node._richSize = { width: Math.max(160, Math.ceil(rect.width)), height: Math.max(44, Math.ceil(rect.height)) };
+        node._richSize = { width: Math.max(24, Math.ceil(rect.width)), height: Math.max(24, Math.ceil(rect.height)) };
         probe.remove();
       }
       if (!node.collapsed) node.children.forEach(visit);
@@ -1185,7 +1185,7 @@
     document.body.appendChild(probe);
     const box = probe.getBoundingClientRect();
     ctx.save();
-    ctx.translate(x + 5 * scale, y + 7 * scale);
+    ctx.translate(x + 4 * scale, y + 4 * scale);
     ctx.scale(scale, scale);
     ctx.textBaseline = 'top'; ctx.textAlign = 'left';
     const write = (text, left, top, width, font, color) => {
@@ -1481,13 +1481,31 @@
       h: node._h * scale,
     };
   }
+  function centerOnNode(node) {
+    if (!node || !layout?.visible.includes(node)) return;
+    const rect = canvasWrap.getBoundingClientRect();
+    pan.x = rect.width / 2 - (node._rx + node._w / 2) * scale;
+    pan.y = rect.height / 2 - (node._ry + node._h / 2) * scale;
+    applyTransform();
+  }
+  function nodeInViewport(node, rect) {
+    const r = screenRect(node);
+    return r.left + r.w > 0 && r.top + r.h > 0 && r.left < rect.width && r.top < rect.height;
+  }
   function zoomAt(cx, cy, factor) {
+    const rect = canvasWrap.getBoundingClientRect();
+    const visible = layout?.visible.filter(node => nodeInViewport(node, rect)) || [];
+    const nearest = visible.sort((a,b) => {
+      const distance = n => Math.hypot(n._rx * scale + pan.x + n._w * scale / 2 - cx, n._ry * scale + pan.y + n._h * scale / 2 - cy);
+      return distance(a) - distance(b);
+    })[0] || model?.find(selectedId) || model?.root;
     const ns = clamp(scale * factor, 0.2, 3);
     const k = ns / scale;
     pan.x = cx - (cx - pan.x) * k;
     pan.y = cy - (cy - pan.y) * k;
     scale = ns;
-    applyTransform();
+    if (layout && !layout.visible.some(node => nodeInViewport(node, rect))) centerOnNode(nearest);
+    else applyTransform();
   }
   function centerView(resetScale) {
     if (!model || !layout) return;
@@ -1595,6 +1613,8 @@
   /* ---------------- 渲染 ---------------- */
   function render() {
     if (!model) return;
+    const anchor = fittedOnce && layout ? layout.visible.find(n => n.id === selectedId) || model.root : null;
+    const anchorPoint = anchor && Number.isFinite(anchor._rx) ? {x:pan.x + (anchor._rx + anchor._w / 2) * scale,y:pan.y + (anchor._ry + anchor._h / 2) * scale} : null;
     applyTheme();
     // 保险性隐藏拖拽指示器，避免拖拽后残留
     if (indicator) indicator.style.display = 'none';
@@ -1619,6 +1639,11 @@
       node._ry = node._y - box.y;
       createNodeEl(node);
     }
+    if (anchorPoint && layout.visible.includes(anchor)) {
+      pan.x = anchorPoint.x - (anchor._rx + anchor._w / 2) * scale;
+      pan.y = anchorPoint.y - (anchor._ry + anchor._h / 2) * scale;
+    }
+    applyTransform();
     drawEdges();
     selectNode(selectedId);
     document.getElementById('btn-undo').disabled = readOnly || !model.canUndo();
@@ -1681,8 +1706,11 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (editingId) commitEdit();
+        const expanding = node.collapsed;
+        selectedId = node.id;
         model.toggleCollapse(node.id);
         render();
+        if (expanding) centerOnNode(node);
         scheduleSave();
       });
       el.appendChild(btn);
@@ -1822,7 +1850,7 @@
         if (editorHeight > node._h) {
           const editingMeasure = value => {
             const size = C.createMeasure(FONT, 540)(value);
-            return value === text ? { width: size.width, height: Math.max(size.height, editorHeight - C.LAYOUT.PAD_Y * 2 - 4) } : size;
+            return value === text ? { width: size.width, height: Math.max(size.height, editorHeight - C.LAYOUT.PAD_Y * 2 - 2) } : size;
           };
           newLayout = C.layoutTree(model.root, editingMeasure, layoutMode);
         }
@@ -1954,6 +1982,7 @@
         if (sel.collapsed) {
           model.setCollapsed(sel.id, false);
           render();
+          centerOnNode(sel);
           scheduleSave();
         } else {
           selectNode(sel.children[0].id);
@@ -2530,7 +2559,7 @@
         if (model.setAllCollapsed(collapse)) {
           if (collapse || !selectedId) selectedId = model.root.id;
           render();
-          centerView(false);
+          centerOnNode(model.root);
           scheduleSave();
         } else syncBulkToggle();
         break;

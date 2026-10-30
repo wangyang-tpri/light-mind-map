@@ -256,13 +256,31 @@
       h: node._h * scale,
     };
   }
+  function centerOnNode(node) {
+    if (!node || !layout?.visible.includes(node)) return;
+    const rect = canvasWrap.getBoundingClientRect();
+    pan.x = rect.width / 2 - (node._rx + node._w / 2) * scale;
+    pan.y = rect.height / 2 - (node._ry + node._h / 2) * scale;
+    applyTransform();
+  }
+  function nodeInViewport(node, rect) {
+    const r = screenRect(node);
+    return r.left + r.w > 0 && r.top + r.h > 0 && r.left < rect.width && r.top < rect.height;
+  }
   function zoomAt(cx, cy, factor) {
+    const rect = canvasWrap.getBoundingClientRect();
+    const visible = layout?.visible.filter(node => nodeInViewport(node, rect)) || [];
+    const nearest = visible.sort((a,b) => {
+      const distance = n => Math.hypot(n._rx * scale + pan.x + n._w * scale / 2 - cx, n._ry * scale + pan.y + n._h * scale / 2 - cy);
+      return distance(a) - distance(b);
+    })[0] || model?.find(selectedId) || model?.root;
     const ns = clamp(scale * factor, 0.2, 3);
     const k = ns / scale;
     pan.x = cx - (cx - pan.x) * k;
     pan.y = cy - (cy - pan.y) * k;
     scale = ns;
-    applyTransform();
+    if (layout && !layout.visible.some(node => nodeInViewport(node, rect))) centerOnNode(nearest);
+    else applyTransform();
   }
   function centerView(resetScale) {
     if (!model || !layout) return;
@@ -370,6 +388,8 @@
   /* ---------------- 渲染 ---------------- */
   function render() {
     if (!model) return;
+    const anchor = fittedOnce && layout ? layout.visible.find(n => n.id === selectedId) || model.root : null;
+    const anchorPoint = anchor && Number.isFinite(anchor._rx) ? {x:pan.x + (anchor._rx + anchor._w / 2) * scale,y:pan.y + (anchor._ry + anchor._h / 2) * scale} : null;
     applyTheme();
     // 保险性隐藏拖拽指示器，避免拖拽后残留
     if (indicator) indicator.style.display = 'none';
@@ -394,6 +414,11 @@
       node._ry = node._y - box.y;
       createNodeEl(node);
     }
+    if (anchorPoint && layout.visible.includes(anchor)) {
+      pan.x = anchorPoint.x - (anchor._rx + anchor._w / 2) * scale;
+      pan.y = anchorPoint.y - (anchor._ry + anchor._h / 2) * scale;
+    }
+    applyTransform();
     drawEdges();
     selectNode(selectedId);
     document.getElementById('btn-undo').disabled = readOnly || !model.canUndo();
@@ -456,8 +481,11 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (editingId) commitEdit();
+        const expanding = node.collapsed;
+        selectedId = node.id;
         model.toggleCollapse(node.id);
         render();
+        if (expanding) centerOnNode(node);
         scheduleSave();
       });
       el.appendChild(btn);
@@ -597,7 +625,7 @@
         if (editorHeight > node._h) {
           const editingMeasure = value => {
             const size = C.createMeasure(FONT, 540)(value);
-            return value === text ? { width: size.width, height: Math.max(size.height, editorHeight - C.LAYOUT.PAD_Y * 2 - 4) } : size;
+            return value === text ? { width: size.width, height: Math.max(size.height, editorHeight - C.LAYOUT.PAD_Y * 2 - 2) } : size;
           };
           newLayout = C.layoutTree(model.root, editingMeasure, layoutMode);
         }
@@ -729,6 +757,7 @@
         if (sel.collapsed) {
           model.setCollapsed(sel.id, false);
           render();
+          centerOnNode(sel);
           scheduleSave();
         } else {
           selectNode(sel.children[0].id);
@@ -1305,7 +1334,7 @@
         if (model.setAllCollapsed(collapse)) {
           if (collapse || !selectedId) selectedId = model.root.id;
           render();
-          centerView(false);
+          centerOnNode(model.root);
           scheduleSave();
         } else syncBulkToggle();
         break;

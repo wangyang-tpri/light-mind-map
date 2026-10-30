@@ -175,6 +175,26 @@ setTimeout(()=>{
   }
   document.body.dataset.editorcontrast=JSON.stringify(results);
 },14500);
+setTimeout(()=>{
+  const C=MindMapCore,data=C.defaultData();data.root.text='导航稳定';
+  const branch=C.createNode('展开父节点',[C.createNode('子节点一'),C.createNode('子节点二'),C.createNode('子节点三')]);branch.collapsed=true;
+  data.root.children=[branch,C.createNode('相邻节点')];
+  window.dispatchEvent(new MessageEvent('message',{data:{type:'init',data}}));
+  document.querySelector('.mm-node[data-id="'+branch.id+'"] .mm-collapse').click();
+  const wrap=document.getElementById('canvas-wrap').getBoundingClientRect();
+  const centered=()=>{const r=document.querySelector('.mm-node[data-id="'+branch.id+'"]').getBoundingClientRect();return Math.abs(r.left+r.width/2-wrap.left-wrap.width/2)<1&&Math.abs(r.top+r.height/2-wrap.top-wrap.height/2)<1;};
+  const centeredExpanded=centered();
+  document.querySelector('[data-theme="lightMap"]').click();
+  const preserved=centered();
+  const visible=()=>[...document.querySelectorAll('.mm-node')].some(n=>{const r=n.getBoundingClientRect();return r.right>wrap.left&&r.left<wrap.right&&r.bottom>wrap.top&&r.top<wrap.bottom;});
+  let zoomVisible=true;
+  for(let i=0;i<20;i++){document.querySelector('[data-action="zoom-out"]').click();zoomVisible=zoomVisible&&visible();}
+  for(let i=0;i<20;i++){document.querySelector('[data-action="zoom-in"]').click();zoomVisible=zoomVisible&&visible();}
+  for(let i=0;i<15;i++){document.getElementById('canvas-wrap').dispatchEvent(new WheelEvent('wheel',{bubbles:true,cancelable:true,ctrlKey:true,deltaY:-100,clientX:wrap.right-10,clientY:wrap.bottom-10}));zoomVisible=zoomVisible&&visible();}
+  document.querySelector('[data-action="zoom-reset"]').click();zoomVisible=zoomVisible&&visible();
+  const node=document.querySelector('.mm-node');const padding=getComputedStyle(node).paddingTop;
+  document.body.dataset.viewstability=JSON.stringify({centeredExpanded,preserved,zoomVisible,padding});
+},14700);
 
 `;
 fs.writeFileSync(path.join(output, 'boot.js'), boot);
@@ -186,6 +206,7 @@ assert.strictEqual(result.status, 0, result.stderr);
 fs.writeFileSync(path.join(output, 'dom.html'), result.stdout);
 const read = key => result.stdout.match(new RegExp('data-' + key + '="([^"]*)"'))?.[1].replaceAll('&quot;', '"').replaceAll('&amp;', '&');
 assert.ok(!read('error'), read('error'));
+assert.deepStrictEqual(JSON.parse(read('viewstability')),{centeredExpanded:true,preserved:true,zoomVisible:true,padding:'3px'});
 for(const editor of JSON.parse(read('editorcontrast'))) {assert.notStrictEqual(editor.color,editor.background);assert.strictEqual(editor.color,editor.caret);}
 assert.deepStrictEqual(JSON.parse(read('imagerender')), {count:2,loaded:true,width:128,unsafe:false,fallback:true});
 for(const key of ['imagesvg','imagehtml','imagepng'])assert.strictEqual(read(key),'true',key);

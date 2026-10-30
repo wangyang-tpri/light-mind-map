@@ -232,7 +232,7 @@ ok('折叠/展开按钮切换不报错', () => {
     const a = win.document.querySelector('.mm-node[data-id="a"]');
     const b = win.document.querySelector('.mm-node[data-id="b"]');
     assert.ok(parseFloat(a.style.height) >= 154);
-    assert.ok(parseFloat(b.style.top) >= parseFloat(a.style.top) + parseFloat(a.style.height) + 16);
+    assert.ok(parseFloat(b.style.top) >= parseFloat(a.style.top) + parseFloat(a.style.height) + win.MindMapCore.LAYOUT.V_GAP);
     assert.strictEqual(ta.value.split('\n').length, 2, '不修改用户文本');
     ta.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });

@@ -96,7 +96,7 @@
         probe.classList.add('mm-rich-probe');
         document.body.appendChild(probe);
         const rect = probe.getBoundingClientRect();
-        node._richSize = { width: Math.max(160, Math.ceil(rect.width)), height: Math.max(44, Math.ceil(rect.height)) };
+        node._richSize = { width: Math.max(24, Math.ceil(rect.width)), height: Math.max(24, Math.ceil(rect.height)) };
         probe.remove();
       }
       if (!node.collapsed) node.children.forEach(visit);
@@ -157,7 +157,7 @@
     document.body.appendChild(probe);
     const box = probe.getBoundingClientRect();
     ctx.save();
-    ctx.translate(x + 5 * scale, y + 7 * scale);
+    ctx.translate(x + 4 * scale, y + 4 * scale);
     ctx.scale(scale, scale);
     ctx.textBaseline = 'top'; ctx.textAlign = 'left';
     const write = (text, left, top, width, font, color) => {
